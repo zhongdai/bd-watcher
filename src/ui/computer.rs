@@ -13,23 +13,46 @@ pub fn render(app: &App, frame: &mut Frame) {
         return;
     }
 
-    if app.view == View::Detail {
-        widgets::render_detail(app, frame, area);
-        let footer = ratatui::layout::Rect {
-            x: area.x,
-            y: area.y + area.height.saturating_sub(1),
-            width: area.width,
-            height: 1,
-        };
-        widgets::render_footer(app, frame, footer, "esc back · q quit");
-        return;
+    if app.focus.is_some() {
+        render_single_epic(app, frame);
+    } else {
+        render_all_epics(app, frame);
     }
+}
 
+fn render_single_epic(app: &App, frame: &mut Frame) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(if app.last_error.is_some() { 5 } else { 4 }),
+            Constraint::Min(12),
+            Constraint::Length(9),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    widgets::render_header(app, frame, chunks[0]);
+    widgets::render_single_epic_dag(app, frame, chunks[1]);
+    widgets::render_activity(app, frame, chunks[2]);
+
+    let hint_owned;
+    let hint: &str = if let Some(t) = app.active_toast() {
+        t
+    } else {
+        hint_owned = "q quit · r refresh".to_string();
+        hint_owned.as_str()
+    };
+    widgets::render_footer(app, frame, chunks[3], hint);
+}
+
+fn render_all_epics(app: &App, frame: &mut Frame) {
+    let area = frame.area();
     let has_filter = app.view == View::Filter || !app.filter.is_empty();
     let mut constraints = vec![
         Constraint::Length(if app.last_error.is_some() { 5 } else { 4 }),
-        Constraint::Percentage(55),
-        Constraint::Min(6),
+        Constraint::Min(12),
+        Constraint::Length(9),
         Constraint::Length(1),
     ];
     if has_filter {
@@ -48,13 +71,33 @@ pub fn render(app: &App, frame: &mut Frame) {
         widgets::render_filter(app, frame, chunks[i]);
         i += 1;
     }
-    widgets::render_epics(app, frame, chunks[i], true);
+
+    let middle = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[i]);
+    widgets::render_epics(app, frame, middle[0], true);
+
+    let right = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+        .split(middle[1]);
+    widgets::render_detail_header(app, frame, right[0]);
+    widgets::render_detail_children(app, frame, right[1]);
     i += 1;
+
     widgets::render_activity(app, frame, chunks[i]);
     i += 1;
-    let hint = match app.view {
-        View::Filter => "type to filter · esc cancel · enter accept",
-        _ => "q quit · r refresh · ↑↓ select · ↵ detail · / filter",
+
+    let hint_owned;
+    let hint: &str = if let Some(t) = app.active_toast() {
+        t
+    } else {
+        hint_owned = match app.view {
+            View::Filter => "type to filter · esc cancel · enter accept".to_string(),
+            _ => "q quit · r refresh · ↑↓ select · y copy id · / filter".to_string(),
+        };
+        hint_owned.as_str()
     };
     widgets::render_footer(app, frame, chunks[i], hint);
 }

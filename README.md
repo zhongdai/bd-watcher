@@ -9,7 +9,7 @@ A lightweight Rust TUI dashboard for the [bd (beads)](https://github.com/steveye
 
 Built to sit on a TV while AI agents work through a stack of beads.
 
-[![demo](https://asciinema.org/a/4VqiywSm8DHppL5n.png)](https://asciinema.org/a/4VqiywSm8DHppL5n)
+[![demo](https://asciinema.org/a/DR6KIABFaGc8o1U3.png)](https://asciinema.org/a/DR6KIABFaGc8o1U3)
 
 ## Modes
 
@@ -64,9 +64,9 @@ bd-watcher --repo ~/code/my-repo # run `bd` from another directory
 | `r`            | force refresh |
 | `↑` / `k`      | select previous epic |
 | `↓` / `j`      | select next epic |
-| `Enter`        | open detail panel |
+| `y`            | copy selected epic id to clipboard |
 | `/`            | filter epics by id/title |
-| `Esc`          | close panel / filter |
+| `Esc`          | close filter |
 
 ### Themes
 

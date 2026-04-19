@@ -23,6 +23,10 @@ pub fn render(app: &App, frame: &mut Frame) {
         .split(area);
 
     widgets::render_header(app, frame, chunks[0]);
-    widgets::render_epics(app, frame, chunks[1], false);
+    if app.focus.is_some() {
+        widgets::render_single_epic_dag(app, frame, chunks[1]);
+    } else {
+        widgets::render_epics(app, frame, chunks[1], false);
+    }
     widgets::render_activity(app, frame, chunks[2]);
 }

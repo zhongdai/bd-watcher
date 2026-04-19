@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 
@@ -17,7 +18,6 @@ pub enum Mode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     Main,
-    Detail,
     Filter,
 }
 
@@ -37,6 +37,8 @@ pub struct App {
     pub selected_epic: usize,
     pub filter: String,
     pub last_error: Option<(DateTime<Utc>, String)>,
+    /// Transient status message shown in the footer (e.g. "copied demo-abc").
+    pub toast: Option<(Instant, String)>,
     pub should_quit: bool,
 }
 
@@ -61,7 +63,37 @@ impl App {
             selected_epic: 0,
             filter: String::new(),
             last_error: None,
+            toast: None,
             should_quit: false,
+        }
+    }
+
+    pub fn set_toast(&mut self, msg: impl Into<String>) {
+        self.toast = Some((Instant::now(), msg.into()));
+    }
+
+    /// Returns the toast message if it's still within the display window.
+    pub fn active_toast(&self) -> Option<&str> {
+        self.toast.as_ref().and_then(|(at, msg)| {
+            if at.elapsed() < std::time::Duration::from_secs(2) {
+                Some(msg.as_str())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Returns the id of the currently-selected epic, or None if no snapshot
+    /// or selection is out of range for the filtered list.
+    pub fn selected_epic_id(&self) -> Option<String> {
+        let snap = self.snapshot.as_ref()?;
+        let filtered = self.filtered_epic_indices(snap);
+        if filtered.contains(&self.selected_epic) {
+            snap.components
+                .get(self.selected_epic)
+                .map(|c| c.root.id.clone())
+        } else {
+            None
         }
     }
 

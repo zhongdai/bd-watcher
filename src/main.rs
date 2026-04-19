@@ -19,6 +19,7 @@ use tokio::time;
 
 use bd_watcher::app::{App, Mode, View};
 use bd_watcher::bd::BdRunner;
+use bd_watcher::clipboard;
 use bd_watcher::diff::diff;
 use bd_watcher::model::{ActivityEvent, Snapshot};
 use bd_watcher::theme::{self, ThemeName};
@@ -269,10 +270,6 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
                 }
                 _ => {}
             },
-            View::Detail => match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => app.view = View::Main,
-                _ => {}
-            },
             View::Main => match key.code {
                 KeyCode::Char('q') => app.should_quit = true,
                 KeyCode::Char('r') => {
@@ -280,10 +277,17 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
                 }
                 KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
                 KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
-                KeyCode::Enter => app.view = View::Detail,
                 KeyCode::Char('/') => {
                     app.filter.clear();
                     app.view = View::Filter;
+                }
+                KeyCode::Char('y') => {
+                    if let Some(id) = app.selected_epic_id() {
+                        match clipboard::copy(&id) {
+                            Ok(_) => app.set_toast(format!("copied {id}")),
+                            Err(e) => app.set_toast(format!("copy failed: {e}")),
+                        }
+                    }
                 }
                 _ => {}
             },
