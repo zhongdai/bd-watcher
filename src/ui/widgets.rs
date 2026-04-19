@@ -154,9 +154,14 @@ pub fn render_epics(app: &App, frame: &mut Frame, area: Rect, highlight_selected
     }
 
     let bar_width = 20usize;
+    let lines_per_epic = 3usize;
     let mut lines: Vec<Line> = Vec::new();
+    let selected_pos = indices
+        .iter()
+        .position(|&i| i == app.selected_epic)
+        .unwrap_or(0);
 
-    for idx in indices {
+    for &idx in &indices {
         let comp = &snap.components[idx];
         let counts = counts_for(comp);
         let total = counts.total();
@@ -204,8 +209,40 @@ pub fn render_epics(app: &App, frame: &mut Frame, area: Rect, highlight_selected
         lines.push(Line::raw(""));
     }
 
-    let p = Paragraph::new(lines).style(Style::default().fg(theme.fg).bg(theme.bg));
+    let inner_lines = inner.height as usize;
+    let total_epics = indices.len();
+    let offset = if highlight_selected {
+        scroll_offset(selected_pos, lines_per_epic, inner_lines, total_epics)
+    } else {
+        0
+    };
+
+    let p = Paragraph::new(lines)
+        .scroll((offset as u16, 0))
+        .style(Style::default().fg(theme.fg).bg(theme.bg));
     frame.render_widget(p, inner);
+}
+
+/// Compute line-scroll offset so the selected epic stays visible.
+/// Keeps the selected epic in view, preferring to show one epic of context
+/// above it when possible, and clamps at the bottom.
+fn scroll_offset(
+    selected_pos: usize,
+    lines_per_epic: usize,
+    inner_lines: usize,
+    total_epics: usize,
+) -> usize {
+    if inner_lines == 0 || total_epics == 0 {
+        return 0;
+    }
+    let visible_epics = (inner_lines / lines_per_epic).max(1);
+    if total_epics <= visible_epics {
+        return 0;
+    }
+    let max_top = total_epics - visible_epics;
+    let desired_top = selected_pos.saturating_sub(visible_epics.saturating_sub(1) / 2);
+    let top = desired_top.min(max_top);
+    top * lines_per_epic
 }
 
 pub fn render_activity(app: &App, frame: &mut Frame, area: Rect) {
