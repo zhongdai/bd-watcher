@@ -39,6 +39,8 @@ pub struct App {
     pub last_error: Option<(DateTime<Utc>, String)>,
     /// Transient status message shown in the footer (e.g. "copied demo-abc").
     pub toast: Option<(Instant, String)>,
+    /// First half of a vim-style `gg` chord. Cleared by any other key.
+    pub pending_g: bool,
     pub should_quit: bool,
 }
 
@@ -64,6 +66,7 @@ impl App {
             filter: String::new(),
             last_error: None,
             toast: None,
+            pending_g: false,
             should_quit: false,
         }
     }
@@ -137,8 +140,25 @@ impl App {
             .iter()
             .position(|&i| i == self.selected_epic)
             .unwrap_or(0);
-        let new_pos = (current_pos as isize + delta).rem_euclid(filtered.len() as isize) as usize;
+        let last = filtered.len() as isize - 1;
+        let new_pos = (current_pos as isize + delta).clamp(0, last) as usize;
         self.selected_epic = filtered[new_pos];
+    }
+
+    pub fn jump_to_top(&mut self) {
+        let Some(snap) = &self.snapshot else { return };
+        let filtered = self.filtered_epic_indices(snap);
+        if let Some(&first) = filtered.first() {
+            self.selected_epic = first;
+        }
+    }
+
+    pub fn jump_to_bottom(&mut self) {
+        let Some(snap) = &self.snapshot else { return };
+        let filtered = self.filtered_epic_indices(snap);
+        if let Some(&last) = filtered.last() {
+            self.selected_epic = last;
+        }
     }
 
     pub fn filtered_epic_indices(&self, snap: &Snapshot) -> Vec<usize> {

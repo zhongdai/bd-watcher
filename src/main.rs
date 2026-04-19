@@ -270,27 +270,43 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
                 }
                 _ => {}
             },
-            View::Main => match key.code {
-                KeyCode::Char('q') => app.should_quit = true,
-                KeyCode::Char('r') => {
-                    let _ = refresh_tx.send(()).await;
-                }
-                KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
-                KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
-                KeyCode::Char('/') => {
-                    app.filter.clear();
-                    app.view = View::Filter;
-                }
-                KeyCode::Char('y') => {
-                    if let Some(id) = app.selected_epic_id() {
-                        match clipboard::copy(&id) {
-                            Ok(_) => app.set_toast(format!("copied {id}")),
-                            Err(e) => app.set_toast(format!("copy failed: {e}")),
+            View::Main => {
+                // `gg` chord handling: a lone `g` arms; the next `g` jumps to
+                // top, any other key disarms.
+                let was_pending_g = app.pending_g;
+                app.pending_g = false;
+                match key.code {
+                    KeyCode::Char('g') => {
+                        if was_pending_g {
+                            app.jump_to_top();
+                        } else {
+                            app.pending_g = true;
                         }
                     }
+                    KeyCode::Char('G') => app.jump_to_bottom(),
+                    KeyCode::Char('q') => app.should_quit = true,
+                    KeyCode::Char('r') => {
+                        let _ = refresh_tx.send(()).await;
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
+                    KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
+                    KeyCode::Home => app.jump_to_top(),
+                    KeyCode::End => app.jump_to_bottom(),
+                    KeyCode::Char('/') => {
+                        app.filter.clear();
+                        app.view = View::Filter;
+                    }
+                    KeyCode::Char('y') => {
+                        if let Some(id) = app.selected_epic_id() {
+                            match clipboard::copy(&id) {
+                                Ok(_) => app.set_toast(format!("copied {id}")),
+                                Err(e) => app.set_toast(format!("copy failed: {e}")),
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
         },
     }
 }

@@ -64,6 +64,8 @@ bd-watcher --repo ~/code/my-repo # run `bd` from another directory
 | `r`            | force refresh |
 | `↑` / `k`      | select previous epic |
 | `↓` / `j`      | select next epic |
+| `gg`           | jump to first epic |
+| `G`            | jump to last epic |
 | `y`            | copy selected epic id to clipboard |
 | `/`            | filter epics by id/title |
 | `Esc`          | close filter |

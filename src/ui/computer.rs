@@ -95,7 +95,8 @@ fn render_all_epics(app: &App, frame: &mut Frame) {
     } else {
         hint_owned = match app.view {
             View::Filter => "type to filter · esc cancel · enter accept".to_string(),
-            _ => "q quit · r refresh · ↑↓ select · y copy id · / filter".to_string(),
+            _ => "q quit · r refresh · ↑↓ jk select · gg/G top/bottom · y copy id · / filter"
+                .to_string(),
         };
         hint_owned.as_str()
     };
