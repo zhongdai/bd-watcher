@@ -9,6 +9,8 @@ A lightweight Rust TUI dashboard for the [bd (beads)](https://github.com/steveye
 
 Built to sit on a TV while AI agents work through a stack of beads.
 
+[![demo](https://asciinema.org/a/4VqiywSm8DHppL5n.png)](https://asciinema.org/a/4VqiywSm8DHppL5n)
+
 ## Modes
 
 - **TV mode** (`--tv`) — read-only. High-contrast theme, no interaction beyond quit. Set it and walk away.
@@ -51,7 +53,7 @@ bd-watcher --tv                  # TV dashboard
 bd-watcher sel3-42wn             # focus a single epic
 bd-watcher --theme dracula       # pick a theme
 bd-watcher --interval 2          # refresh every 2s (default 5)
-bd-watcher --repo ~/rokt/srs     # run `bd` from another directory
+bd-watcher --repo ~/code/my-repo # run `bd` from another directory
 ```
 
 ### Keys (computer mode)

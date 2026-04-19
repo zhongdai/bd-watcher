@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -31,6 +31,9 @@ pub struct App {
 
     pub snapshot: Option<Snapshot>,
     pub activity: VecDeque<ActivityEvent>,
+    /// Time we last observed a status change for a given issue id.
+    /// Drives TV-mode epic ordering so epics with recent activity float up.
+    pub last_status_change: HashMap<String, DateTime<Utc>>,
     pub selected_epic: usize,
     pub filter: String,
     pub last_error: Option<(DateTime<Utc>, String)>,
@@ -54,6 +57,7 @@ impl App {
             interval_secs,
             snapshot: None,
             activity: VecDeque::with_capacity(ACTIVITY_CAP),
+            last_status_change: HashMap::new(),
             selected_epic: 0,
             filter: String::new(),
             last_error: None,
@@ -63,6 +67,9 @@ impl App {
 
     pub fn apply_snapshot(&mut self, snapshot: Snapshot, events: Vec<ActivityEvent>) {
         for event in events.into_iter() {
+            if let ActivityEvent::StatusChange { id, at, .. } = &event {
+                self.last_status_change.insert(id.clone(), *at);
+            }
             if matches!(event, ActivityEvent::StatusChange { .. }) {
                 self.push_activity(event);
             }

@@ -122,7 +122,7 @@ Timestamps for events use `next.fetched_at`. Pushed onto the bounded ring buffer
 ### TV mode
 
 ```
-┌─ bd-watcher ─ repo: ~/rokt/selection ─ every 5s ─ 14:32:07 ──────────┐
+┌─ bd-watcher ─ repo: ~/code/my-repo ─ every 5s ─ 14:32:07 ────────────┐
 │  TOTAL   open 42   in-progress 3   blocked 5   closed 28   DONE 40% │
 ├─ Epics ─────────────────────────────────────────────────────────────┤
 │  sel3-42wn  GetFeatures migration              ▓▓▓▓▓▓░░░░  12/19   │

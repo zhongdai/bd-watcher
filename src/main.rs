@@ -160,10 +160,13 @@ fn input_loop(tx: mpsc::Sender<Event>, shutdown: std::sync::mpsc::Receiver<()>) 
                         break;
                     }
                 }
-                Err(_) => break,
+                // Transient read error: back off and retry. Keeps the thread
+                // alive under degenerate stdin (e.g., headless recorders) so
+                // the render loop can keep running for the TV dashboard.
+                Err(_) => std::thread::sleep(Duration::from_millis(500)),
             },
             Ok(false) => {}
-            Err(_) => break,
+            Err(_) => std::thread::sleep(Duration::from_millis(500)),
         }
     }
 }
@@ -222,7 +225,9 @@ async fn run(
                         handle_key(app, key, refresh_tx).await;
                     }
                     Some(Event::Resize(_, _)) => {}
-                    None => break,
+                    // Input channel closed: keep rendering on poller events.
+                    // Useful under headless recorders / broken stdin.
+                    None => tokio::time::sleep(Duration::from_secs(3600)).await,
                     _ => {}
                 }
             }

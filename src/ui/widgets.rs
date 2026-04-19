@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
+use crate::app::{App, Mode};
 use crate::model::{ActivityEvent, Component, Snapshot, Status, StatusCounts};
 use crate::theme::Theme;
 
@@ -99,6 +99,27 @@ fn status_count_span<'a>(theme: &Theme, status: Status, count: usize) -> Span<'a
     )
 }
 
+/// Most recent status-change time across the component's issues, as observed
+/// by this process (via diff of successive snapshots). Falls back to the
+/// max `updated_at` of the issues when no status change has been seen yet —
+/// that keeps initial ordering reasonable before any changes have happened.
+fn component_latest_status_change(app: &App, component: &Component) -> DateTime<Utc> {
+    if let Some(t) = component
+        .issues
+        .iter()
+        .filter_map(|i| app.last_status_change.get(&i.id).copied())
+        .max()
+    {
+        return t;
+    }
+    component
+        .issues
+        .iter()
+        .map(|i| i.updated_at)
+        .max()
+        .unwrap_or(component.root.updated_at)
+}
+
 pub fn counts_for(component: &Component) -> StatusCounts {
     let mut c = StatusCounts::default();
     let mut seen = std::collections::HashSet::new();
@@ -142,7 +163,12 @@ pub fn render_epics(app: &App, frame: &mut Frame, area: Rect, highlight_selected
         return;
     };
 
-    let indices = app.filtered_epic_indices(snap);
+    let mut indices = app.filtered_epic_indices(snap);
+    if app.mode == Mode::Tv {
+        indices.sort_by_key(|&i| {
+            std::cmp::Reverse(component_latest_status_change(app, &snap.components[i]))
+        });
+    }
     if indices.is_empty() {
         let p = Paragraph::new(Line::from(Span::styled(
             " no epics match filter ",
