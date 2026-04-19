@@ -170,8 +170,13 @@ pub fn render_epics(app: &App, frame: &mut Frame, area: Rect, highlight_selected
         });
     }
     if indices.is_empty() {
+        let msg = if snap.components.is_empty() {
+            " no open issues "
+        } else {
+            " no epics match filter "
+        };
         let p = Paragraph::new(Line::from(Span::styled(
-            " no epics match filter ",
+            msg,
             Style::default().fg(theme.muted),
         )))
         .style(Style::default().fg(theme.fg).bg(theme.bg));

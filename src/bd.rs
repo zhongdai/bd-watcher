@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use serde::Deserialize;
 use tokio::process::Command;
+use tokio::time;
 
 use crate::model::{Component, DepType, Dependency, Issue, Snapshot};
 
@@ -35,6 +37,31 @@ impl BdRunner {
     }
 
     pub async fn fetch(&self) -> Result<Snapshot> {
+        // The embedded Dolt DB allows a single writer at a time. Concurrent
+        // bd writes (e.g. an agent running `bd update`) briefly hold an
+        // exclusive lock and our read collides. Retry a few times within
+        // the poll tick before surfacing the error to the user.
+        const BACKOFFS_MS: &[u64] = &[150, 350, 700];
+
+        let mut attempt = 0usize;
+        loop {
+            match self.fetch_once().await {
+                Ok(snap) => return Ok(snap),
+                Err(e) => {
+                    if let Some(&delay) = BACKOFFS_MS.get(attempt) {
+                        if is_transient_lock(&e) {
+                            time::sleep(Duration::from_millis(delay)).await;
+                            attempt += 1;
+                            continue;
+                        }
+                    }
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    async fn fetch_once(&self) -> Result<Snapshot> {
         let mut cmd = Command::new("bd");
         cmd.current_dir(&self.repo);
         cmd.arg("graph");
@@ -53,11 +80,15 @@ impl BdRunner {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow!(
-                "`bd graph` exited {}: {}",
-                output.status,
-                stderr.trim()
-            ));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            // bd writes its structured error to stdout in some modes, plain
+            // text to stderr in others; surface whichever has content.
+            let msg = if !stderr.trim().is_empty() {
+                stderr.trim().to_string()
+            } else {
+                stdout.trim().to_string()
+            };
+            return Err(anyhow!("`bd graph` exited {}: {}", output.status, msg));
         }
 
         let components = parse_graph_output(&output.stdout)
@@ -70,15 +101,34 @@ impl BdRunner {
     }
 }
 
+fn is_transient_lock(err: &anyhow::Error) -> bool {
+    let s = format!("{err:#}").to_lowercase();
+    s.contains("exclusive lock") || s.contains("another process holds")
+}
+
 /// `bd graph --all --json` returns `Vec<Component>`.
 /// `bd graph <id> --json` returns a different object shape (root/issues/layout).
 /// Accept both and normalize into `Vec<Component>`.
+///
+/// When the database has no open issues, bd emits the plain text
+/// "No open issues found" and ignores --json. Treat that (and any empty
+/// output) as an empty graph rather than a parse error.
 fn parse_graph_output(bytes: &[u8]) -> Result<Vec<Component>> {
-    // Try the all-mode shape first.
+    let trimmed = bytes
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .map(|i| &bytes[i..])
+        .unwrap_or(&[]);
+    match trimmed.first() {
+        None => return Ok(Vec::new()),
+        Some(b'[') | Some(b'{') => {}
+        // Non-JSON payload (e.g. "No open issues found").
+        _ => return Ok(Vec::new()),
+    }
+
     if let Ok(cs) = serde_json::from_slice::<Vec<Component>>(bytes) {
         return Ok(cs);
     }
-    // Fall back to single-epic shape.
     let single: SingleEpic = serde_json::from_slice(bytes)
         .map_err(|e| anyhow!("not a recognized bd graph shape: {e}"))?;
     Ok(vec![single.into_component()])
