@@ -18,6 +18,18 @@ Built to sit on a TV while AI agents work through a stack of beads.
 
 Both modes are **read-only**. `bd-watcher` never writes to the Dolt database.
 
+## Focused epic view
+
+Pass an epic id to zoom in: `bd-watcher <epic-id>`. The pane groups tasks by dependency layer (Layer 0 is ready to start; each higher layer waits on the previous). Each row shows, in order:
+
+```
+[status] [bead-id] [#PR] [type] [title] [← blocked-by]
+```
+
+- **#PR** — the GitHub PR number when the bead's `external-ref` is set to `gh-<N>`. Blank otherwise.
+- **type** — bead type (`task`, `epic`, `design`, etc.).
+- **← blocked-by** — inline list of ids this task waits on (if any).
+
 ## Install
 
 ### Homebrew (macOS / Linux)
