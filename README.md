@@ -9,7 +9,7 @@ A lightweight Rust TUI dashboard for the [bd (beads)](https://github.com/steveye
 
 Built to sit on a TV while AI agents work through a stack of beads.
 
-[![demo](https://asciinema.org/a/I4zNssvFFeQBAIFQ.svg)](https://asciinema.org/a/I4zNssvFFeQBAIFQ)
+[![demo](https://asciinema.org/a/I4zNssvFFeQBAIFQ.svg?v=2)](https://asciinema.org/a/I4zNssvFFeQBAIFQ)
 
 ## Modes
 
