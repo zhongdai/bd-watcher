@@ -79,6 +79,28 @@ async fn main() -> Result<()> {
     let env_theme = std::env::var("BD_WATCHER_THEME").ok();
     let theme = theme::resolve(args.theme, env_theme.as_deref(), args.tv);
 
+    // Pre-flight fetch: catch non-bd repos and unknown epic ids BEFORE we
+    // swap to the alternate screen, so we can print a useful message and
+    // exit 1 instead of flashing a vague error banner in the TUI.
+    let preflight_runner = BdRunner::new(repo.clone(), args.epic_id.clone());
+    if let Err(err) = preflight_runner.fetch().await {
+        let msg = format!("{err:#}").to_lowercase();
+        if msg.contains("no beads database") {
+            eprintln!("bd-watcher: no beads database in {}", repo.display());
+            eprintln!("Run `bd init` in that directory, or pass --repo <path>.");
+            std::process::exit(1);
+        }
+        if let Some(id) = &args.epic_id {
+            if msg.contains("not found") {
+                eprintln!("bd-watcher: epic '{id}' not found in {}", repo.display());
+                eprintln!("Run `bd list --type epic` to see available epics.");
+                std::process::exit(1);
+            }
+        }
+        eprintln!("bd-watcher: {err:#}");
+        std::process::exit(1);
+    }
+
     let mut app = App::new(
         mode,
         theme,
