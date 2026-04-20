@@ -502,7 +502,7 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
         return;
     };
 
-    let title_width = (area.width as usize).saturating_sub(20);
+    let title_width = (area.width as usize).saturating_sub(28);
     let mut lines: Vec<Line> = Vec::new();
     for issue in comp.issues.iter().filter(|i| i.id != comp.root.id) {
         let blocked_by: Vec<&str> = comp
@@ -513,7 +513,7 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
             })
             .map(|d| d.depends_on_id.as_str())
             .collect();
-        lines.push(Line::from(vec![
+        let mut row = vec![
             Span::styled(
                 format!(" {} ", issue.status.icon()),
                 Style::default().fg(status_color(theme, issue.status)),
@@ -527,7 +527,14 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
                 truncate(&issue.title, title_width.max(10)),
                 Style::default().fg(theme.fg),
             ),
-        ]));
+        ];
+        if let Some(n) = pr_number(issue.external_ref.as_deref()) {
+            row.push(Span::styled(
+                format!("  #{n}"),
+                Style::default().fg(theme.accent),
+            ));
+        }
+        lines.push(Line::from(row));
         if !blocked_by.is_empty() {
             lines.push(Line::from(vec![
                 Span::raw("     "),
@@ -572,6 +579,15 @@ pub fn too_small_placeholder(frame: &mut Frame, theme: &Theme, area: Rect) {
     .alignment(ratatui::layout::Alignment::Center)
     .style(Style::default().fg(theme.fg).bg(theme.bg));
     frame.render_widget(p, area);
+}
+
+/// Extracts a GitHub PR number from a bead's `external_ref` when it matches
+/// the `gh-<N>` convention. Returns `None` for other ref shapes (jira-*,
+/// linear-*), empty refs, or unparseable input.
+fn pr_number(external_ref: Option<&str>) -> Option<u32> {
+    external_ref
+        .and_then(|s| s.strip_prefix("gh-"))
+        .and_then(|n| n.parse::<u32>().ok())
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -716,8 +732,8 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
     let layers = compute_layers(comp);
     let inner_width = inner.width as usize;
     let id_col = 16usize;
-    // Reserve room for " [icon] id  " prefix + "  ← deps" suffix.
-    let title_width = inner_width.saturating_sub(id_col + 6 + 20).max(10);
+    // Reserve room for " [icon] id  " prefix + "  #NNNNN" PR column + "  ← deps" suffix.
+    let title_width = inner_width.saturating_sub(id_col + 6 + 8 + 20).max(10);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -826,6 +842,16 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
                     Style::default().fg(theme.fg),
                 ),
             ];
+            // Pad PR column to 8 chars whether present or not, so the
+            // following `← deps` stays aligned across rows.
+            let pr_cell = match pr_number(issue.external_ref.as_deref()) {
+                Some(n) => format!("  #{n}"),
+                None => String::new(),
+            };
+            spans.push(Span::styled(
+                format!("{pr_cell:<8}"),
+                Style::default().fg(theme.accent),
+            ));
             if !deps.is_empty() {
                 spans.push(Span::styled(
                     format!("  ← {deps}"),
@@ -838,4 +864,37 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
 
     let p = Paragraph::new(lines).style(Style::default().fg(theme.fg).bg(theme.bg));
     frame.render_widget(p, inner);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pr_number_parses_gh_ref() {
+        assert_eq!(pr_number(Some("gh-196")), Some(196));
+        assert_eq!(pr_number(Some("gh-1")), Some(1));
+        assert_eq!(pr_number(Some("gh-99999")), Some(99999));
+    }
+
+    #[test]
+    fn pr_number_rejects_non_gh_refs() {
+        assert_eq!(pr_number(Some("jira-SEL-1")), None);
+        assert_eq!(pr_number(Some("linear-ABC-42")), None);
+        assert_eq!(pr_number(Some("#196")), None);
+    }
+
+    #[test]
+    fn pr_number_rejects_malformed() {
+        assert_eq!(pr_number(Some("gh-")), None);
+        assert_eq!(pr_number(Some("gh-abc")), None);
+        assert_eq!(pr_number(Some("gh-1.2")), None);
+        assert_eq!(pr_number(Some("gh--1")), None);
+        assert_eq!(pr_number(Some("")), None);
+    }
+
+    #[test]
+    fn pr_number_handles_none() {
+        assert_eq!(pr_number(None), None);
+    }
 }
