@@ -502,7 +502,8 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
         return;
     };
 
-    let title_width = (area.width as usize).saturating_sub(28);
+    // Prefix widths: 3 icon + 14 id + 1 + 8 PR + 8 type = 34 chars.
+    let title_width = (area.width as usize).saturating_sub(34).max(10);
     let mut lines: Vec<Line> = Vec::new();
     for issue in comp.issues.iter().filter(|i| i.id != comp.root.id) {
         let blocked_by: Vec<&str> = comp
@@ -513,7 +514,7 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
             })
             .map(|d| d.depends_on_id.as_str())
             .collect();
-        let mut row = vec![
+        let row = vec![
             Span::styled(
                 format!(" {} ", issue.status.icon()),
                 Style::default().fg(status_color(theme, issue.status)),
@@ -524,16 +525,18 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
             ),
             Span::raw(" "),
             Span::styled(
-                truncate(&issue.title, title_width.max(10)),
+                pr_cell(issue.external_ref.as_deref()),
+                Style::default().fg(theme.accent),
+            ),
+            Span::styled(
+                format!("{:<8}", truncate(&issue.issue_type, 7)),
+                Style::default().fg(theme.muted),
+            ),
+            Span::styled(
+                truncate(&issue.title, title_width),
                 Style::default().fg(theme.fg),
             ),
         ];
-        if let Some(n) = pr_number(issue.external_ref.as_deref()) {
-            row.push(Span::styled(
-                format!("  #{n}"),
-                Style::default().fg(theme.accent),
-            ));
-        }
         lines.push(Line::from(row));
         if !blocked_by.is_empty() {
             lines.push(Line::from(vec![
@@ -588,6 +591,15 @@ fn pr_number(external_ref: Option<&str>) -> Option<u32> {
     external_ref
         .and_then(|s| s.strip_prefix("gh-"))
         .and_then(|n| n.parse::<u32>().ok())
+}
+
+/// Renders the fixed-width PR column cell. Always 8 chars so the
+/// following column stays aligned whether or not a PR ref is present.
+fn pr_cell(external_ref: Option<&str>) -> String {
+    match pr_number(external_ref) {
+        Some(n) => format!("{:<8}", format!("  #{n}")),
+        None => " ".repeat(8),
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -732,8 +744,8 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
     let layers = compute_layers(comp);
     let inner_width = inner.width as usize;
     let id_col = 16usize;
-    // Reserve room for " [icon] id  " prefix + "  #NNNNN" PR column + "  ← deps" suffix.
-    let title_width = inner_width.saturating_sub(id_col + 6 + 8 + 20).max(10);
+    // Reserve room for " [icon] id  " prefix + PR (8) + type (8) columns + "  ← deps" suffix.
+    let title_width = inner_width.saturating_sub(id_col + 6 + 8 + 8 + 20).max(10);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -834,6 +846,14 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
                 ),
                 Span::raw(" "),
                 Span::styled(
+                    pr_cell(issue.external_ref.as_deref()),
+                    Style::default().fg(theme.accent),
+                ),
+                Span::styled(
+                    format!("{:<8}", truncate(&issue.issue_type, 7)),
+                    Style::default().fg(theme.muted),
+                ),
+                Span::styled(
                     format!(
                         "{:<width$}",
                         truncate(&issue.title, title_width),
@@ -842,16 +862,6 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
                     Style::default().fg(theme.fg),
                 ),
             ];
-            // Pad PR column to 8 chars whether present or not, so the
-            // following `← deps` stays aligned across rows.
-            let pr_cell = match pr_number(issue.external_ref.as_deref()) {
-                Some(n) => format!("  #{n}"),
-                None => String::new(),
-            };
-            spans.push(Span::styled(
-                format!("{pr_cell:<8}"),
-                Style::default().fg(theme.accent),
-            ));
             if !deps.is_empty() {
                 spans.push(Span::styled(
                     format!("  ← {deps}"),
@@ -896,5 +906,25 @@ mod tests {
     #[test]
     fn pr_number_handles_none() {
         assert_eq!(pr_number(None), None);
+    }
+
+    #[test]
+    fn pr_cell_pads_to_eight_chars() {
+        assert_eq!(pr_cell(Some("gh-196")).len(), 8);
+        assert_eq!(pr_cell(Some("gh-1")).len(), 8);
+        assert_eq!(pr_cell(Some("gh-99999")).len(), 8);
+        assert_eq!(pr_cell(None).len(), 8);
+        assert_eq!(pr_cell(Some("jira-1")).len(), 8);
+    }
+
+    #[test]
+    fn pr_cell_renders_visible_number_when_present() {
+        assert!(pr_cell(Some("gh-196")).contains("#196"));
+    }
+
+    #[test]
+    fn pr_cell_is_blank_when_absent_or_non_gh() {
+        assert_eq!(pr_cell(None), " ".repeat(8));
+        assert_eq!(pr_cell(Some("jira-SEL-1")), " ".repeat(8));
     }
 }
