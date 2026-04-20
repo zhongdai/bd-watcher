@@ -502,8 +502,7 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
         return;
     };
 
-    // Prefix widths: 3 icon + 14 id + 1 + 8 PR + 8 type = 34 chars.
-    let title_width = (area.width as usize).saturating_sub(34).max(10);
+    let title_width = (area.width as usize).saturating_sub(20);
     let mut lines: Vec<Line> = Vec::new();
     for issue in comp.issues.iter().filter(|i| i.id != comp.root.id) {
         let blocked_by: Vec<&str> = comp
@@ -514,7 +513,7 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
             })
             .map(|d| d.depends_on_id.as_str())
             .collect();
-        let row = vec![
+        lines.push(Line::from(vec![
             Span::styled(
                 format!(" {} ", issue.status.icon()),
                 Style::default().fg(status_color(theme, issue.status)),
@@ -525,19 +524,10 @@ pub fn render_detail_children(app: &App, frame: &mut Frame, area: Rect) {
             ),
             Span::raw(" "),
             Span::styled(
-                pr_cell(issue.external_ref.as_deref()),
-                Style::default().fg(theme.accent),
-            ),
-            Span::styled(
-                format!("{:<8}", truncate(&issue.issue_type, 7)),
-                Style::default().fg(theme.muted),
-            ),
-            Span::styled(
-                truncate(&issue.title, title_width),
+                truncate(&issue.title, title_width.max(10)),
                 Style::default().fg(theme.fg),
             ),
-        ];
-        lines.push(Line::from(row));
+        ]));
         if !blocked_by.is_empty() {
             lines.push(Line::from(vec![
                 Span::raw("     "),
