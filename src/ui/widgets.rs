@@ -583,12 +583,19 @@ fn pr_number(external_ref: Option<&str>) -> Option<u32> {
         .and_then(|n| n.parse::<u32>().ok())
 }
 
-/// Renders the fixed-width PR column cell. Always 8 chars so the
-/// following column stays aligned whether or not a PR ref is present.
+/// Width reserved for the PR column: 2 leading spaces + "#" + up to 6
+/// digits + 1 trailing gap before the next column. Widens to 10 so a
+/// 5- or 6-digit PR (common in active monorepos) still has visible
+/// separation from the type column.
+const PR_CELL_WIDTH: usize = 10;
+
+/// Renders the fixed-width PR column cell. Always `PR_CELL_WIDTH` chars
+/// so the following column stays aligned whether or not a PR ref is
+/// present.
 fn pr_cell(external_ref: Option<&str>) -> String {
     match pr_number(external_ref) {
-        Some(n) => format!("{:<8}", format!("  #{n}")),
-        None => " ".repeat(8),
+        Some(n) => format!("{:<width$}", format!("  #{n}"), width = PR_CELL_WIDTH),
+        None => " ".repeat(PR_CELL_WIDTH),
     }
 }
 
@@ -734,8 +741,10 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
     let layers = compute_layers(comp);
     let inner_width = inner.width as usize;
     let id_col = 16usize;
-    // Reserve room for " [icon] id  " prefix + PR (8) + type (8) columns + "  ← deps" suffix.
-    let title_width = inner_width.saturating_sub(id_col + 6 + 8 + 8 + 20).max(10);
+    // Reserve room for " [icon] id  " prefix + PR + type (8) columns + "  ← deps" suffix.
+    let title_width = inner_width
+        .saturating_sub(id_col + 6 + PR_CELL_WIDTH + 8 + 20)
+        .max(10);
 
     let mut lines: Vec<Line> = Vec::new();
 
@@ -899,12 +908,12 @@ mod tests {
     }
 
     #[test]
-    fn pr_cell_pads_to_eight_chars() {
-        assert_eq!(pr_cell(Some("gh-196")).len(), 8);
-        assert_eq!(pr_cell(Some("gh-1")).len(), 8);
-        assert_eq!(pr_cell(Some("gh-99999")).len(), 8);
-        assert_eq!(pr_cell(None).len(), 8);
-        assert_eq!(pr_cell(Some("jira-1")).len(), 8);
+    fn pr_cell_pads_to_fixed_width() {
+        assert_eq!(pr_cell(Some("gh-196")).len(), PR_CELL_WIDTH);
+        assert_eq!(pr_cell(Some("gh-1")).len(), PR_CELL_WIDTH);
+        assert_eq!(pr_cell(Some("gh-99999")).len(), PR_CELL_WIDTH);
+        assert_eq!(pr_cell(None).len(), PR_CELL_WIDTH);
+        assert_eq!(pr_cell(Some("jira-1")).len(), PR_CELL_WIDTH);
     }
 
     #[test]
@@ -914,7 +923,16 @@ mod tests {
 
     #[test]
     fn pr_cell_is_blank_when_absent_or_non_gh() {
-        assert_eq!(pr_cell(None), " ".repeat(8));
-        assert_eq!(pr_cell(Some("jira-SEL-1")), " ".repeat(8));
+        assert_eq!(pr_cell(None), " ".repeat(PR_CELL_WIDTH));
+        assert_eq!(pr_cell(Some("jira-SEL-1")), " ".repeat(PR_CELL_WIDTH));
+    }
+
+    #[test]
+    fn pr_cell_leaves_gap_for_five_digit_prs() {
+        // A 5-digit PR like gh-10006 should still leave at least one
+        // trailing space so the next column doesn't butt up against it.
+        let cell = pr_cell(Some("gh-10006"));
+        assert!(cell.contains("#10006"));
+        assert!(cell.ends_with(' '), "expected trailing space, got {cell:?}");
     }
 }
