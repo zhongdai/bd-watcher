@@ -747,6 +747,9 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
         .max(10);
 
     let mut lines: Vec<Line> = Vec::new();
+    // Captured during line construction; consumed after the Paragraph
+    // renders to overlay OSC 8 hyperlink escapes onto the PR cells.
+    let mut pr_link_overlays: Vec<(u16, String)> = Vec::new();
 
     // Compact summary row under the title
     lines.push(Line::from(vec![
@@ -867,12 +870,62 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
                     Style::default().fg(theme.muted),
                 ));
             }
+            // Track this row for OSC 8 hyperlink overlay (after the
+            // Paragraph renders). Only when we know the github repo and
+            // the bead has a parsable gh-* external ref.
+            if let (Some(gh), Some(pr)) = (
+                app.gh_repo.as_ref(),
+                pr_number(issue.external_ref.as_deref()),
+            ) {
+                pr_link_overlays.push((lines.len() as u16, gh.pr_url(pr)));
+            }
             lines.push(Line::from(spans));
         }
     }
 
     let p = Paragraph::new(lines).style(Style::default().fg(theme.fg).bg(theme.bg));
     frame.render_widget(p, inner);
+
+    // Wrap the visible characters of each PR cell in OSC 8 escape codes
+    // so terminals that support hyperlinks (iTerm2, Ghostty, Wezterm,
+    // Kitty, modern Terminal.app, etc.) make `#196` clickable.
+    // Layout: 3 leading spaces + 2 (icon+space) + id_col + 1 separator
+    // = the first column of the PR cell.
+    let pr_x = inner.x + 3 + 2 + (id_col as u16) + 1;
+    overlay_pr_links(frame.buffer_mut(), pr_x, inner, &pr_link_overlays);
+}
+
+/// Overlay OSC 8 hyperlink escapes onto the visible characters of each
+/// PR cell whose row was tracked during line construction. We rewrite
+/// each non-blank cell's `symbol` to be `<OSC8-open><char><OSC8-close>`
+/// so each cell stays width-1 from ratatui's perspective while the
+/// terminal sees a continuous link region.
+fn overlay_pr_links(
+    buf: &mut ratatui::buffer::Buffer,
+    pr_x: u16,
+    inner: Rect,
+    overlays: &[(u16, String)],
+) {
+    for (line_idx, url) in overlays {
+        let y = inner.y + *line_idx;
+        if y >= inner.y + inner.height {
+            continue;
+        }
+        for dx in 0..PR_CELL_WIDTH as u16 {
+            let x = pr_x + dx;
+            if x >= inner.x + inner.width {
+                break;
+            }
+            let Some(cell) = buf.cell_mut((x, y)) else {
+                continue;
+            };
+            let sym = cell.symbol().to_string();
+            if sym.trim().is_empty() {
+                continue; // don't wrap padding spaces
+            }
+            cell.set_symbol(&format!("\x1b]8;;{url}\x07{sym}\x1b]8;;\x07"));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -934,5 +987,46 @@ mod tests {
         let cell = pr_cell(Some("gh-10006"));
         assert!(cell.contains("#10006"));
         assert!(cell.ends_with(' '), "expected trailing space, got {cell:?}");
+    }
+
+    #[test]
+    fn overlay_pr_links_wraps_visible_chars_in_osc8() {
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+
+        let area = Rect::new(0, 0, 20, 3);
+        let mut buf = Buffer::empty(area);
+        // Simulate the PR cell at column 5 of row 1 containing "  #196    "
+        buf.set_string(5, 1, "  #196    ", Style::default());
+
+        let overlays = vec![(1u16, "https://github.com/zhongdai/bd-watcher/pull/196".to_string())];
+        overlay_pr_links(&mut buf, 5, area, &overlays);
+
+        // The 4 visible characters of "#196" each get wrapped; padding
+        // spaces are left untouched.
+        let chars = ['#', '1', '9', '6'];
+        for (i, ch) in chars.iter().enumerate() {
+            let cell = &buf[(5 + 2 + i as u16, 1)];
+            let sym = cell.symbol();
+            assert!(
+                sym.contains("\x1b]8;;https://github.com/zhongdai/bd-watcher/pull/196\x07"),
+                "cell for {ch:?} missing OSC 8 open: {sym:?}"
+            );
+            assert!(
+                sym.contains(&ch.to_string()),
+                "cell missing visible char {ch:?}: {sym:?}"
+            );
+            assert!(
+                sym.ends_with("\x1b]8;;\x07"),
+                "cell missing OSC 8 close: {sym:?}"
+            );
+        }
+        // A padding cell stays untouched (no OSC 8).
+        let pad = &buf[(5, 1)];
+        assert!(
+            !pad.symbol().contains("\x1b"),
+            "padding cell got escape codes: {:?}",
+            pad.symbol()
+        );
     }
 }

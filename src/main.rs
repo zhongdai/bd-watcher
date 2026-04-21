@@ -108,6 +108,10 @@ async fn main() -> Result<()> {
         args.epic_id.clone(),
         interval_secs,
     );
+    // Best-effort lookup of the GitHub owner/repo so the PR column can
+    // render OSC 8 hyperlinks. Failure (no `origin`, non-github remote,
+    // etc.) just means PR cells stay as plain text — no error to user.
+    app.gh_repo = bd_watcher::gh::detect(&repo).await;
 
     let (tx, mut rx) = mpsc::channel::<PollerMsg>(16);
     let (refresh_tx, mut refresh_rx) = mpsc::channel::<()>(4);
