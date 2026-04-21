@@ -749,7 +749,8 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     // Captured during line construction; consumed after the Paragraph
     // renders to overlay OSC 8 hyperlink escapes onto the PR cells.
-    let mut pr_link_overlays: Vec<(u16, String)> = Vec::new();
+    // Tuple: (line index inside `inner`, visible text "#N", PR URL).
+    let mut pr_link_overlays: Vec<(u16, String, String)> = Vec::new();
 
     // Compact summary row under the title
     lines.push(Line::from(vec![
@@ -877,7 +878,7 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
                 app.gh_repo.as_ref(),
                 pr_number(issue.external_ref.as_deref()),
             ) {
-                pr_link_overlays.push((lines.len() as u16, gh.pr_url(pr)));
+                pr_link_overlays.push((lines.len() as u16, format!("#{pr}"), gh.pr_url(pr)));
             }
             lines.push(Line::from(spans));
         }
@@ -895,35 +896,60 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
     overlay_pr_links(frame.buffer_mut(), pr_x, inner, &pr_link_overlays);
 }
 
-/// Overlay OSC 8 hyperlink escapes onto the visible characters of each
-/// PR cell whose row was tracked during line construction. We rewrite
-/// each non-blank cell's `symbol` to be `<OSC8-open><char><OSC8-close>`
-/// so each cell stays width-1 from ratatui's perspective while the
-/// terminal sees a continuous link region.
+/// Overlay OSC 8 hyperlink escapes onto each tracked PR cell.
+///
+/// Approach: place the entire `<OSC8-open><visible><OSC8-close>` blob
+/// in the first cell where the visible "#N" begins, then mark the
+/// remaining cells the visible text would have occupied as `skip` so
+/// ratatui's per-cell flush doesn't reposition the cursor and overwrite
+/// the linked chars with their plain originals from the Paragraph
+/// render.
+///
+/// Per-character wrapping (one OSC sequence per cell) does NOT work
+/// reliably: ratatui flushes cells with explicit cursor moves between
+/// them, so each subsequent cell's plain re-write lands on top of the
+/// linked char written by the previous cell's wide symbol.
 fn overlay_pr_links(
     buf: &mut ratatui::buffer::Buffer,
     pr_x: u16,
     inner: Rect,
-    overlays: &[(u16, String)],
+    overlays: &[(u16, String, String)],
 ) {
-    for (line_idx, url) in overlays {
+    for (line_idx, visible, url) in overlays {
         let y = inner.y + *line_idx;
         if y >= inner.y + inner.height {
             continue;
         }
+        // Reset skip across the whole PR column for this row so a
+        // shorter PR number on a later frame doesn't leave stale skip
+        // flags from a previous longer one.
         for dx in 0..PR_CELL_WIDTH as u16 {
             let x = pr_x + dx;
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_skip(false);
+            }
+        }
+        // pr_cell prints "  #N…", so the visible "#" lives at pr_x + 2.
+        let start_x = pr_x + 2;
+        if start_x >= inner.x + inner.width {
+            continue;
+        }
+        let visible_len = visible.chars().count() as u16;
+        let wrapped = format!("\x1b]8;;{url}\x07{visible}\x1b]8;;\x07");
+        if let Some(cell) = buf.cell_mut((start_x, y)) {
+            cell.set_symbol(&wrapped);
+        }
+        // Cells visually occupied by the digits get marked skip so the
+        // backend doesn't re-emit the plain digit symbols and clobber
+        // the link region.
+        for dx in 1..visible_len {
+            let x = start_x + dx;
             if x >= inner.x + inner.width {
                 break;
             }
-            let Some(cell) = buf.cell_mut((x, y)) else {
-                continue;
-            };
-            let sym = cell.symbol().to_string();
-            if sym.trim().is_empty() {
-                continue; // don't wrap padding spaces
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_skip(true);
             }
-            cell.set_symbol(&format!("\x1b]8;;{url}\x07{sym}\x1b]8;;\x07"));
         }
     }
 }
@@ -990,43 +1016,46 @@ mod tests {
     }
 
     #[test]
-    fn overlay_pr_links_wraps_visible_chars_in_osc8() {
+    fn overlay_pr_links_places_full_link_in_first_cell_then_skips() {
         use ratatui::buffer::Buffer;
         use ratatui::layout::Rect;
 
-        let area = Rect::new(0, 0, 20, 3);
+        let area = Rect::new(0, 0, 30, 3);
         let mut buf = Buffer::empty(area);
         // Simulate the PR cell at column 5 of row 1 containing "  #196    "
         buf.set_string(5, 1, "  #196    ", Style::default());
 
-        let overlays = vec![(1u16, "https://github.com/zhongdai/bd-watcher/pull/196".to_string())];
+        let overlays = vec![(
+            1u16,
+            "#196".to_string(),
+            "https://github.com/zhongdai/bd-watcher/pull/196".to_string(),
+        )];
         overlay_pr_links(&mut buf, 5, area, &overlays);
 
-        // The 4 visible characters of "#196" each get wrapped; padding
-        // spaces are left untouched.
-        let chars = ['#', '1', '9', '6'];
-        for (i, ch) in chars.iter().enumerate() {
-            let cell = &buf[(5 + 2 + i as u16, 1)];
-            let sym = cell.symbol();
-            assert!(
-                sym.contains("\x1b]8;;https://github.com/zhongdai/bd-watcher/pull/196\x07"),
-                "cell for {ch:?} missing OSC 8 open: {sym:?}"
-            );
-            assert!(
-                sym.contains(&ch.to_string()),
-                "cell missing visible char {ch:?}: {sym:?}"
-            );
-            assert!(
-                sym.ends_with("\x1b]8;;\x07"),
-                "cell missing OSC 8 close: {sym:?}"
-            );
-        }
-        // A padding cell stays untouched (no OSC 8).
-        let pad = &buf[(5, 1)];
+        // The cell at start_x = pr_x + 2 = 7 holds the full wrapped blob.
+        let head = &buf[(7, 1)];
+        let sym = head.symbol();
         assert!(
-            !pad.symbol().contains("\x1b"),
-            "padding cell got escape codes: {:?}",
-            pad.symbol()
+            sym.contains("\x1b]8;;https://github.com/zhongdai/bd-watcher/pull/196\x07"),
+            "missing OSC 8 open: {sym:?}"
+        );
+        assert!(sym.contains("#196"), "missing visible #196: {sym:?}");
+        assert!(
+            sym.ends_with("\x1b]8;;\x07"),
+            "missing OSC 8 close: {sym:?}"
+        );
+        assert!(!head.skip, "head cell must be drawable");
+
+        // Cells 8..11 are where the digits visually go; they get
+        // marked skip so the backend won't repaint them.
+        for x in 8..11 {
+            assert!(buf[(x, 1)].skip, "cell at x={x} should be skip but isn't");
+        }
+        // Cell at x=11 (just past "#196") stays drawable — it's part of
+        // the trailing PR-cell padding, not under the link.
+        assert!(
+            !buf[(11, 1)].skip,
+            "cell at x=11 should NOT be skip — it's outside the link"
         );
     }
 }
