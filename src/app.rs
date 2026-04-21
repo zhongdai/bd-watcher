@@ -4,7 +4,6 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 
-use crate::gh::GhRepo;
 use crate::model::{ActivityEvent, Snapshot};
 use crate::theme::Theme;
 
@@ -29,10 +28,6 @@ pub struct App {
     pub repo: PathBuf,
     pub focus: Option<String>,
     pub interval_secs: u64,
-    /// GitHub owner+repo for the local checkout, used to render
-    /// clickable PR hyperlinks. `None` when the repo isn't on github.com
-    /// or `origin` isn't configured.
-    pub gh_repo: Option<GhRepo>,
 
     pub snapshot: Option<Snapshot>,
     pub activity: VecDeque<ActivityEvent>,
@@ -64,7 +59,6 @@ impl App {
             repo,
             focus,
             interval_secs,
-            gh_repo: None,
             snapshot: None,
             activity: VecDeque::with_capacity(ACTIVITY_CAP),
             last_status_change: HashMap::new(),

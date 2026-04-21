@@ -26,7 +26,7 @@ Pass an epic id to zoom in: `bd-watcher <epic-id>`. The pane groups tasks by dep
 [status] [bead-id] [#PR] [type] [title] [← blocked-by]
 ```
 
-- **#PR** — the GitHub PR number when the bead's `external-ref` is set to `gh-<N>`. Blank otherwise. Clickable in terminals that support OSC 8 hyperlinks (iTerm2, Ghostty, Kitty, Wezterm, modern Terminal.app, etc.) — opens the PR in your browser. Requires the local checkout's `origin` remote to point at a github.com URL.
+- **#PR** — the GitHub PR number when the bead's `external-ref` is set to `gh-<N>`. Blank otherwise.
 - **type** — bead type (`task`, `epic`, `design`, etc.).
 - **← blocked-by** — inline list of ids this task waits on (if any).
 
