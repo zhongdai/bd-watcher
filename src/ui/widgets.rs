@@ -120,10 +120,16 @@ fn component_latest_status_change(app: &App, component: &Component) -> DateTime<
         .unwrap_or(component.root.updated_at)
 }
 
+/// Counts the component's sub-beads — excludes the root epic itself,
+/// which is a container, not real work. A 5/10-done epic means five
+/// of its ten sub-beads are closed.
 pub fn counts_for(component: &Component) -> StatusCounts {
     let mut c = StatusCounts::default();
     let mut seen = std::collections::HashSet::new();
     for i in &component.issues {
+        if i.id == component.root.id {
+            continue;
+        }
         if seen.insert(&i.id) {
             c.add(i.status);
         }
@@ -721,13 +727,13 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
     };
 
     let counts = counts_for(comp);
-    let total_tasks = counts.total().saturating_sub(1); // exclude the root epic if counted
+    let total_tasks = counts.total();
     let title_line = format!(
         " {} · {} · {}/{} done ",
         comp.root.id,
         truncate(&comp.root.title, area.width.saturating_sub(30) as usize),
         counts.closed,
-        counts.total(),
+        total_tasks,
     );
 
     let block = Block::default()
@@ -762,17 +768,7 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
         Span::raw("  "),
         status_count_span(theme, Status::Blocked, counts.blocked),
         Span::raw("  "),
-        status_count_span(
-            theme,
-            Status::Open,
-            counts
-                .open
-                .saturating_sub(if comp.root.status == Status::Open {
-                    1
-                } else {
-                    0
-                }),
-        ),
+        status_count_span(theme, Status::Open, counts.open),
         Span::raw("  "),
         status_count_span(theme, Status::Closed, counts.closed),
         Span::raw("   "),
@@ -878,6 +874,46 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::{Component, Dependency, Issue};
+    use chrono::Utc;
+
+    fn issue(id: &str, status: Status, issue_type: &str) -> Issue {
+        Issue {
+            id: id.to_string(),
+            title: id.to_string(),
+            description: String::new(),
+            status,
+            priority: 0,
+            issue_type: issue_type.to_string(),
+            owner: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            external_ref: None,
+        }
+    }
+
+    #[test]
+    fn counts_for_excludes_root_epic() {
+        let root = issue("ep-1", Status::Open, "epic");
+        let children = vec![
+            issue("ep-1.a", Status::Closed, "task"),
+            issue("ep-1.b", Status::InProgress, "task"),
+            issue("ep-1.c", Status::Open, "task"),
+        ];
+        let mut issues = vec![root.clone()];
+        issues.extend(children);
+        let comp = Component {
+            root,
+            issues,
+            dependencies: Vec::<Dependency>::new(),
+        };
+        let counts = counts_for(&comp);
+        // Root epic is not counted — total equals the three children.
+        assert_eq!(counts.total(), 3);
+        assert_eq!(counts.closed, 1);
+        assert_eq!(counts.in_progress, 1);
+        assert_eq!(counts.open, 1);
+    }
 
     #[test]
     fn pr_number_parses_gh_ref() {

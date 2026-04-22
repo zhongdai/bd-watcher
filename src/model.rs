@@ -101,12 +101,20 @@ impl Snapshot {
         self.components.iter().flat_map(|c| c.issues.iter())
     }
 
+    /// Aggregates all sub-beads across components, excluding the root
+    /// epic of each component so the header totals reflect real work,
+    /// not container beads.
     pub fn total_counts(&self) -> StatusCounts {
         let mut counts = StatusCounts::default();
         let mut seen = std::collections::HashSet::new();
-        for issue in self.all_issues() {
-            if seen.insert(&issue.id) {
-                counts.add(issue.status);
+        for comp in &self.components {
+            for issue in &comp.issues {
+                if issue.id == comp.root.id {
+                    continue;
+                }
+                if seen.insert(&issue.id) {
+                    counts.add(issue.status);
+                }
             }
         }
         counts
@@ -175,5 +183,55 @@ impl ActivityEvent {
             | ActivityEvent::Added { at, .. }
             | ActivityEvent::Removed { at, .. } => *at,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn issue(id: &str, status: Status, issue_type: &str) -> Issue {
+        Issue {
+            id: id.to_string(),
+            title: id.to_string(),
+            description: String::new(),
+            status,
+            priority: 0,
+            issue_type: issue_type.to_string(),
+            owner: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            external_ref: None,
+        }
+    }
+
+    #[test]
+    fn total_counts_excludes_each_components_root() {
+        let root_a = issue("ep-a", Status::Open, "epic");
+        let root_b = issue("ep-b", Status::Open, "epic");
+        let comp_a = Component {
+            root: root_a.clone(),
+            issues: vec![
+                root_a,
+                issue("ep-a.1", Status::Closed, "task"),
+                issue("ep-a.2", Status::Open, "task"),
+            ],
+            dependencies: Vec::new(),
+        };
+        let comp_b = Component {
+            root: root_b.clone(),
+            issues: vec![root_b, issue("ep-b.1", Status::InProgress, "task")],
+            dependencies: Vec::new(),
+        };
+        let snap = Snapshot {
+            components: vec![comp_a, comp_b],
+            fetched_at: Utc::now(),
+        };
+        let c = snap.total_counts();
+        // Three real sub-beads across two epics; neither root is counted.
+        assert_eq!(c.total(), 3);
+        assert_eq!(c.closed, 1);
+        assert_eq!(c.open, 1);
+        assert_eq!(c.in_progress, 1);
     }
 }

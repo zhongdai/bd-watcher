@@ -83,22 +83,37 @@ async fn main() -> Result<()> {
     // swap to the alternate screen, so we can print a useful message and
     // exit 1 instead of flashing a vague error banner in the TUI.
     let preflight_runner = BdRunner::new(repo.clone(), args.epic_id.clone());
-    if let Err(err) = preflight_runner.fetch().await {
-        let msg = format!("{err:#}").to_lowercase();
-        if msg.contains("no beads database") {
-            eprintln!("bd-watcher: no beads database in {}", repo.display());
-            eprintln!("Run `bd init` in that directory, or pass --repo <path>.");
-            std::process::exit(1);
-        }
-        if let Some(id) = &args.epic_id {
-            if msg.contains("not found") {
-                eprintln!("bd-watcher: epic '{id}' not found in {}", repo.display());
-                eprintln!("Run `bd list --type epic` to see available epics.");
-                std::process::exit(1);
+    match preflight_runner.fetch().await {
+        Ok(snap) => {
+            // When focusing a bead, reject anything that isn't an epic —
+            // the single-epic layered view is designed around epic+children.
+            if let Some(id) = &args.epic_id {
+                if let Some(root) = snap.components.first().map(|c| &c.root) {
+                    if root.issue_type != "epic" {
+                        eprintln!("bd-watcher: '{id}' is a {}, not an epic", root.issue_type);
+                        eprintln!("The focused view requires an epic. Run `bd list --type epic` to see available epics.");
+                        std::process::exit(1);
+                    }
+                }
             }
         }
-        eprintln!("bd-watcher: {err:#}");
-        std::process::exit(1);
+        Err(err) => {
+            let msg = format!("{err:#}").to_lowercase();
+            if msg.contains("no beads database") {
+                eprintln!("bd-watcher: no beads database in {}", repo.display());
+                eprintln!("Run `bd init` in that directory, or pass --repo <path>.");
+                std::process::exit(1);
+            }
+            if let Some(id) = &args.epic_id {
+                if msg.contains("not found") {
+                    eprintln!("bd-watcher: epic '{id}' not found in {}", repo.display());
+                    eprintln!("Run `bd list --type epic` to see available epics.");
+                    std::process::exit(1);
+                }
+            }
+            eprintln!("bd-watcher: {err:#}");
+            std::process::exit(1);
+        }
     }
 
     let mut app = App::new(
