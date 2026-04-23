@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, Mode};
+use crate::app::App;
 use crate::model::{ActivityEvent, Component, DepType, Snapshot, Status, StatusCounts};
 use crate::theme::Theme;
 
@@ -99,27 +99,6 @@ fn status_count_span<'a>(theme: &Theme, status: Status, count: usize) -> Span<'a
     )
 }
 
-/// Most recent status-change time across the component's issues, as observed
-/// by this process (via diff of successive snapshots). Falls back to the
-/// max `updated_at` of the issues when no status change has been seen yet —
-/// that keeps initial ordering reasonable before any changes have happened.
-fn component_latest_status_change(app: &App, component: &Component) -> DateTime<Utc> {
-    if let Some(t) = component
-        .issues
-        .iter()
-        .filter_map(|i| app.last_status_change.get(&i.id).copied())
-        .max()
-    {
-        return t;
-    }
-    component
-        .issues
-        .iter()
-        .map(|i| i.updated_at)
-        .max()
-        .unwrap_or(component.root.updated_at)
-}
-
 /// Counts the component's sub-beads — excludes the root epic itself,
 /// which is a container, not real work. A 5/10-done epic means five
 /// of its ten sub-beads are closed.
@@ -169,12 +148,7 @@ pub fn render_epics(app: &App, frame: &mut Frame, area: Rect, highlight_selected
         return;
     };
 
-    let mut indices = app.filtered_epic_indices(snap);
-    if app.mode == Mode::Tv {
-        indices.sort_by_key(|&i| {
-            std::cmp::Reverse(component_latest_status_change(app, &snap.components[i]))
-        });
-    }
+    let indices = app.filtered_epic_indices(snap);
     if indices.is_empty() {
         let msg = if snap.components.is_empty() {
             " no open issues "

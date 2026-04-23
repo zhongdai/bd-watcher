@@ -17,7 +17,7 @@ use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tokio::time;
 
-use bd_watcher::app::{App, Mode, View};
+use bd_watcher::app::{App, View};
 use bd_watcher::bd::BdRunner;
 use bd_watcher::clipboard;
 use bd_watcher::diff::diff;
@@ -34,10 +34,6 @@ use bd_watcher::ui;
 struct Args {
     /// Optional epic id to focus on. Omit to show all open components.
     epic_id: Option<String>,
-
-    /// TV mode: read-only, no selection or drill-in.
-    #[arg(long)]
-    tv: bool,
 
     /// Poll interval in seconds.
     #[arg(long, default_value_t = 5)]
@@ -75,9 +71,8 @@ async fn main() -> Result<()> {
         None => std::env::current_dir().context("failed to read current working directory")?,
     };
     let interval_secs = args.interval.max(1);
-    let mode = if args.tv { Mode::Tv } else { Mode::Computer };
     let env_theme = std::env::var("BD_WATCHER_THEME").ok();
-    let theme = theme::resolve(args.theme, env_theme.as_deref(), args.tv);
+    let theme = theme::resolve(args.theme, env_theme.as_deref());
 
     // Pre-flight fetch: catch non-bd repos and unknown epic ids BEFORE we
     // swap to the alternate screen, so we can print a useful message and
@@ -116,13 +111,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let mut app = App::new(
-        mode,
-        theme,
-        repo.clone(),
-        args.epic_id.clone(),
-        interval_secs,
-    );
+    let mut app = App::new(theme, repo.clone(), args.epic_id.clone(), interval_secs);
 
     let (tx, mut rx) = mpsc::channel::<PollerMsg>(16);
     let (refresh_tx, mut refresh_rx) = mpsc::channel::<()>(4);
@@ -285,65 +274,59 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
         return;
     }
 
-    match app.mode {
-        Mode::Tv => match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
+    match app.view {
+        View::Filter => match key.code {
+            KeyCode::Esc => {
+                app.filter.clear();
+                app.view = View::Main;
+            }
+            KeyCode::Enter => {
+                app.view = View::Main;
+            }
+            KeyCode::Backspace => {
+                app.filter.pop();
+            }
+            KeyCode::Char(c) => {
+                app.filter.push(c);
+            }
             _ => {}
         },
-        Mode::Computer => match app.view {
-            View::Filter => match key.code {
-                KeyCode::Esc => {
+        View::Main => {
+            // `gg` chord handling: a lone `g` arms; the next `g` jumps to
+            // top, any other key disarms.
+            let was_pending_g = app.pending_g;
+            app.pending_g = false;
+            match key.code {
+                KeyCode::Char('g') => {
+                    if was_pending_g {
+                        app.jump_to_top();
+                    } else {
+                        app.pending_g = true;
+                    }
+                }
+                KeyCode::Char('G') => app.jump_to_bottom(),
+                KeyCode::Char('q') => app.should_quit = true,
+                KeyCode::Char('r') => {
+                    let _ = refresh_tx.send(()).await;
+                }
+                KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
+                KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
+                KeyCode::Home => app.jump_to_top(),
+                KeyCode::End => app.jump_to_bottom(),
+                KeyCode::Char('/') => {
                     app.filter.clear();
-                    app.view = View::Main;
+                    app.view = View::Filter;
                 }
-                KeyCode::Enter => {
-                    app.view = View::Main;
-                }
-                KeyCode::Backspace => {
-                    app.filter.pop();
-                }
-                KeyCode::Char(c) => {
-                    app.filter.push(c);
+                KeyCode::Char('y') => {
+                    if let Some(id) = app.selected_epic_id() {
+                        match clipboard::copy(&id) {
+                            Ok(_) => app.set_toast(format!("copied {id}")),
+                            Err(e) => app.set_toast(format!("copy failed: {e}")),
+                        }
+                    }
                 }
                 _ => {}
-            },
-            View::Main => {
-                // `gg` chord handling: a lone `g` arms; the next `g` jumps to
-                // top, any other key disarms.
-                let was_pending_g = app.pending_g;
-                app.pending_g = false;
-                match key.code {
-                    KeyCode::Char('g') => {
-                        if was_pending_g {
-                            app.jump_to_top();
-                        } else {
-                            app.pending_g = true;
-                        }
-                    }
-                    KeyCode::Char('G') => app.jump_to_bottom(),
-                    KeyCode::Char('q') => app.should_quit = true,
-                    KeyCode::Char('r') => {
-                        let _ = refresh_tx.send(()).await;
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => app.move_selection(1),
-                    KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
-                    KeyCode::Home => app.jump_to_top(),
-                    KeyCode::End => app.jump_to_bottom(),
-                    KeyCode::Char('/') => {
-                        app.filter.clear();
-                        app.view = View::Filter;
-                    }
-                    KeyCode::Char('y') => {
-                        if let Some(id) = app.selected_epic_id() {
-                            match clipboard::copy(&id) {
-                                Ok(_) => app.set_toast(format!("copied {id}")),
-                                Err(e) => app.set_toast(format!("copy failed: {e}")),
-                            }
-                        }
-                    }
-                    _ => {}
-                }
             }
-        },
+        }
     }
 }

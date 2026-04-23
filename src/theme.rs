@@ -190,7 +190,7 @@ fn high_contrast() -> Theme {
     }
 }
 
-pub fn resolve(cli: Option<ThemeName>, env: Option<&str>, tv_mode: bool) -> Theme {
+pub fn resolve(cli: Option<ThemeName>, env: Option<&str>) -> Theme {
     if let Some(name) = cli {
         return name.theme();
     }
@@ -199,9 +199,5 @@ pub fn resolve(cli: Option<ThemeName>, env: Option<&str>, tv_mode: bool) -> Them
             return name.theme();
         }
     }
-    if tv_mode {
-        ThemeName::HighContrast.theme()
-    } else {
-        ThemeName::Default.theme()
-    }
+    ThemeName::Default.theme()
 }

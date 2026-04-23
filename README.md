@@ -7,16 +7,11 @@
 
 A lightweight Rust TUI dashboard for the [bd (beads)](https://github.com/steveyegge/beads) issue tracker. Polls `bd graph --json` on an interval and shows per-epic progress plus a live activity feed of status changes.
 
-Built to sit on a TV while AI agents work through a stack of beads.
+Built to watch AI agents work through a stack of beads.
 
 [![demo](https://asciinema.org/a/I4zNssvFFeQBAIFQ.svg?v=2)](https://asciinema.org/a/I4zNssvFFeQBAIFQ)
 
-## Modes
-
-- **TV mode** (`--tv`) — read-only. High-contrast theme, no interaction beyond quit. Set it and walk away.
-- **Computer mode** (default) — arrow keys to select an epic, `Enter` to drill into the full description and children, `/` to filter.
-
-Both modes are **read-only**. `bd-watcher` never writes to the Dolt database.
+`bd-watcher` is read-only — it never writes to the Dolt database. Arrow keys select an epic, `Enter` drills into it, `/` filters.
 
 ## Focused epic view
 
@@ -60,15 +55,14 @@ Requires `bd` on `PATH`. Install from the [beads releases](https://github.com/st
 ```bash
 cd /path/to/your/bd/repo
 
-bd-watcher                       # interactive dashboard
-bd-watcher --tv                  # TV dashboard
+bd-watcher                       # all-epics dashboard
 bd-watcher sel3-42wn             # focus a single epic
 bd-watcher --theme dracula       # pick a theme
 bd-watcher --interval 2          # refresh every 2s (default 5)
 bd-watcher --repo ~/code/my-repo # run `bd` from another directory
 ```
 
-### Keys (computer mode)
+### Keys
 
 | Key | Action |
 |---|---|
@@ -86,7 +80,7 @@ bd-watcher --repo ~/code/my-repo # run `bd` from another directory
 
 `default` · `light` · `solarized-dark` · `solarized-light` · `gruvbox` · `dracula` · `high-contrast`
 
-Override via `--theme` or the `BD_WATCHER_THEME` env var. TV mode auto-picks `high-contrast` unless overridden.
+Override via `--theme` or the `BD_WATCHER_THEME` env var.
 
 ## Development
 
