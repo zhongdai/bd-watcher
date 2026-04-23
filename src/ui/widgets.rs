@@ -260,10 +260,20 @@ fn scroll_offset(
 
 pub fn render_activity(app: &App, frame: &mut Frame, area: Rect) {
     let theme = &app.theme;
+    // In focused-epic view, highlight the border when the Activity
+    // pane has keyboard focus. Outside focused-epic view the pane is
+    // non-interactive, so stay muted.
+    let focused = app.focus.is_some() && app.focused_pane == crate::app::FocusedPane::Activity;
+    let border_color = if focused { theme.accent } else { theme.muted };
+    let title = if focused {
+        format!(" Activity (last {}) · focus ", app.activity.len())
+    } else {
+        format!(" Activity (last {}) ", app.activity.len())
+    };
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" Activity (last {}) ", app.activity.len()))
-        .border_style(Style::default().fg(theme.muted))
+        .title(title)
+        .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(theme.bg));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -279,7 +289,13 @@ pub fn render_activity(app: &App, frame: &mut Frame, area: Rect) {
     }
 
     let rows = inner.height as usize;
-    let events: Vec<&ActivityEvent> = app.activity.iter().rev().take(rows).collect();
+    // app.activity is oldest-first; we display newest first. Scroll
+    // offset counts "how many newest to skip", so offset=0 shows the
+    // newest, offset=N shows older history further back.
+    let offset = app
+        .activity_scroll
+        .min(app.activity.len().saturating_sub(1));
+    let events: Vec<&ActivityEvent> = app.activity.iter().rev().skip(offset).take(rows).collect();
 
     let lines: Vec<Line> = events
         .into_iter()
@@ -719,10 +735,12 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
         total_tasks,
     );
 
+    let focused = app.focused_pane == crate::app::FocusedPane::Tasks;
+    let border_color = if focused { theme.accent } else { theme.muted };
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title_line)
-        .border_style(Style::default().fg(theme.accent))
+        .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(theme.bg));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -956,6 +974,13 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
         }
     }
 
+    // Footer hint for closing — rendered as part of the body so we
+    // don't clobber the border title.
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        " ↑/↓ scroll · enter/esc close",
+        Style::default().fg(theme.muted),
+    )));
     lines.push(Line::raw(""));
     if !issue.description.is_empty() {
         lines.push(Line::from(Span::styled(
@@ -972,8 +997,18 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
     // Notes live on the Issue model in some bd versions; this codebase
     // doesn't deserialize them, so nothing more to render here.
 
+    // Clamp scroll against the line count so we don't over-scroll into
+    // empty space. This undercounts when description lines wrap (each
+    // wrapped visual row is one actual line from our Vec), so the
+    // clamp can stop a bit short of the true end; accept that.
+    // ratatui 0.29 gates the accurate Paragraph::line_count behind an
+    // unstable feature, so we keep the naive count for now.
+    let total_lines = lines.len() as u16;
+    let max_scroll = total_lines.saturating_sub(inner.height.max(1));
+    let scroll = app.popup_scroll.min(max_scroll);
     let p = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
+        .scroll((scroll, 0))
         .style(Style::default().fg(theme.fg).bg(theme.bg));
     frame.render_widget(p, inner);
 }

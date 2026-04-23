@@ -80,13 +80,23 @@ Focused-epic view (`bd-watcher <epic-id>`):
 
 | Key | Action |
 |---|---|
-| `↑` / `k`      | previous sub-bead |
-| `↓` / `j`      | next sub-bead |
-| `gg` / `G`     | first / last sub-bead |
+| `Tab`          | toggle keyboard focus between task list and activity pane |
+| `↑` / `k`      | move up (selection or scroll, depending on focused pane) |
+| `↓` / `j`      | move down |
+| `gg` / `G`     | jump to first / last |
+| `PgUp` / `PgDn`| scroll by a page (activity pane only) |
 | `Enter`        | open detail popup for selected sub-bead |
-| `Esc` / `Enter`| close popup |
 | `y`            | copy selected sub-bead id |
 | `q`            | quit |
+
+Detail popup (opened via `Enter`):
+
+| Key | Action |
+|---|---|
+| `↑` / `k`, `↓` / `j` | scroll one line |
+| `PgUp` / `PgDn`      | scroll ten lines |
+| `Home`               | jump to top |
+| `Enter` / `Esc`      | close popup |
 
 ### Themes
 

@@ -17,7 +17,7 @@ use ratatui::Terminal;
 use tokio::sync::mpsc;
 use tokio::time;
 
-use bd_watcher::app::{App, View};
+use bd_watcher::app::{App, FocusedPane, View};
 use bd_watcher::bd::BdRunner;
 use bd_watcher::clipboard;
 use bd_watcher::diff::diff;
@@ -295,6 +295,11 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
             KeyCode::Enter | KeyCode::Esc | KeyCode::Char('q') => {
                 app.view = View::Main;
             }
+            KeyCode::Down | KeyCode::Char('j') => app.scroll_popup(1),
+            KeyCode::Up | KeyCode::Char('k') => app.scroll_popup(-1),
+            KeyCode::PageDown => app.scroll_popup(10),
+            KeyCode::PageUp => app.scroll_popup(-10),
+            KeyCode::Home => app.popup_scroll = 0,
             _ => {}
         },
         View::Main => {
@@ -303,28 +308,21 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
             let was_pending_g = app.pending_g;
             app.pending_g = false;
             if app.focus.is_some() {
-                // Focused-epic view: arrows navigate sub-beads, Enter
-                // opens the detail popup, y copies the sub-bead id.
+                // Focused-epic view. Tab cycles focus between the task
+                // list and the activity pane; directional keys then
+                // act on whichever pane has focus.
                 match key.code {
-                    KeyCode::Char('g') => {
-                        if was_pending_g {
-                            app.jump_first_sub();
-                        } else {
-                            app.pending_g = true;
-                        }
-                    }
-                    KeyCode::Char('G') => app.jump_last_sub(),
+                    KeyCode::Tab => app.toggle_focused_pane(),
                     KeyCode::Char('q') => app.should_quit = true,
                     KeyCode::Char('r') => {
                         let _ = refresh_tx.send(()).await;
                     }
-                    KeyCode::Down | KeyCode::Char('j') => app.move_sub_selection(1),
-                    KeyCode::Up | KeyCode::Char('k') => app.move_sub_selection(-1),
-                    KeyCode::Home => app.jump_first_sub(),
-                    KeyCode::End => app.jump_last_sub(),
+                    // Enter opens detail on the selected task no matter
+                    // which pane has focus — saves a Tab round-trip.
                     KeyCode::Enter if app.selected_sub_bead().is_some() => {
-                        app.view = View::BeadDetail;
+                        app.open_bead_detail();
                     }
+                    // y always copies the selected task id too.
                     KeyCode::Char('y') => {
                         if let Some(id) = app.selected_sub_bead().map(|i| i.id.clone()) {
                             match clipboard::copy(&id) {
@@ -333,7 +331,40 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
                             }
                         }
                     }
-                    _ => {}
+                    _ => match app.focused_pane {
+                        FocusedPane::Tasks => match key.code {
+                            KeyCode::Char('g') => {
+                                if was_pending_g {
+                                    app.jump_first_sub();
+                                } else {
+                                    app.pending_g = true;
+                                }
+                            }
+                            KeyCode::Char('G') => app.jump_last_sub(),
+                            KeyCode::Down | KeyCode::Char('j') => app.move_sub_selection(1),
+                            KeyCode::Up | KeyCode::Char('k') => app.move_sub_selection(-1),
+                            KeyCode::Home => app.jump_first_sub(),
+                            KeyCode::End => app.jump_last_sub(),
+                            _ => {}
+                        },
+                        FocusedPane::Activity => match key.code {
+                            KeyCode::Char('g') => {
+                                if was_pending_g {
+                                    app.jump_activity_bottom();
+                                } else {
+                                    app.pending_g = true;
+                                }
+                            }
+                            KeyCode::Char('G') => app.jump_activity_top(),
+                            KeyCode::Down | KeyCode::Char('j') => app.scroll_activity(-1),
+                            KeyCode::Up | KeyCode::Char('k') => app.scroll_activity(1),
+                            KeyCode::PageDown => app.scroll_activity(-10),
+                            KeyCode::PageUp => app.scroll_activity(10),
+                            KeyCode::Home => app.jump_activity_bottom(),
+                            KeyCode::End => app.jump_activity_top(),
+                            _ => {}
+                        },
+                    },
                 }
             } else {
                 // All-epics view (unchanged).
