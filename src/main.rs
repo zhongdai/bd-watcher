@@ -112,6 +112,10 @@ async fn main() -> Result<()> {
     }
 
     let mut app = App::new(theme, repo.clone(), args.epic_id.clone(), interval_secs);
+    // Best-effort GitHub owner/repo lookup for the `v` keybinding.
+    // Silent failure is fine — `v` will show a toast if the repo
+    // doesn't have a github.com `origin`.
+    app.gh_repo = bd_watcher::gh::detect(&repo).await;
 
     let (tx, mut rx) = mpsc::channel::<PollerMsg>(16);
     let (refresh_tx, mut refresh_rx) = mpsc::channel::<()>(4);
@@ -268,6 +272,34 @@ async fn run(
     Ok(())
 }
 
+/// Opens the selected sub-bead's PR in the browser, reporting outcome
+/// (success, missing PR, missing origin, spawn error) via the footer
+/// toast. No-op when nothing is selected.
+fn open_selected_pr(app: &mut App) {
+    let Some(issue) = app.selected_sub_bead() else {
+        return;
+    };
+    let pr = match bd_watcher::gh::parse_pr_number(issue.external_ref.as_deref()) {
+        Some(n) => n,
+        None => {
+            app.set_toast("no PR for this bead".to_string());
+            return;
+        }
+    };
+    let gh = match app.gh_repo.as_ref() {
+        Some(g) => g.clone(),
+        None => {
+            app.set_toast("no github.com origin on this repo".to_string());
+            return;
+        }
+    };
+    let url = gh.pr_url(pr);
+    match bd_watcher::gh::open_in_browser(&url) {
+        Ok(_) => app.set_toast(format!("opened PR #{pr}")),
+        Err(e) => app.set_toast(format!("open failed: {e}")),
+    }
+}
+
 async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>) {
     if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
         app.should_quit = true;
@@ -331,6 +363,8 @@ async fn handle_key(app: &mut App, key: KeyEvent, refresh_tx: &mpsc::Sender<()>)
                             }
                         }
                     }
+                    // v opens the selected task's PR in the default browser.
+                    KeyCode::Char('v') => open_selected_pr(app),
                     _ => match app.focused_pane {
                         FocusedPane::Tasks => match key.code {
                             KeyCode::Char('g') => {

@@ -86,6 +86,7 @@ Focused-epic view (`bd-watcher <epic-id>`):
 | `gg` / `G`     | jump to first / last |
 | `PgUp` / `PgDn`| scroll by a page (activity pane only) |
 | `Enter`        | open detail popup for selected sub-bead |
+| `v`            | open selected sub-bead's PR in the default browser (needs `gh-<N>` external-ref) |
 | `y`            | copy selected sub-bead id |
 | `q`            | quit |
 

@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 
+use crate::gh::GhRepo;
 use crate::model::{ActivityEvent, Component, Issue, Snapshot};
 use crate::theme::Theme;
 use crate::ui::widgets;
@@ -34,6 +35,11 @@ pub struct App {
     pub repo: PathBuf,
     pub focus: Option<String>,
     pub interval_secs: u64,
+    /// GitHub owner+repo for the local checkout. Detected once at
+    /// startup from the `origin` git remote. Used to build PR URLs for
+    /// the `v` keybinding; `None` means the `v` key will show a toast
+    /// saying no GitHub origin is configured.
+    pub gh_repo: Option<GhRepo>,
 
     pub snapshot: Option<Snapshot>,
     pub activity: VecDeque<ActivityEvent>,
@@ -68,6 +74,7 @@ impl App {
             repo,
             focus,
             interval_secs,
+            gh_repo: None,
             snapshot: None,
             activity: VecDeque::with_capacity(ACTIVITY_CAP),
             selected_epic: 0,

@@ -42,7 +42,7 @@ fn render_single_epic(app: &mut App, frame: &mut Frame) {
     } else {
         hint_owned = match app.view {
             View::BeadDetail => "↑↓ jk scroll · enter/esc close".to_string(),
-            _ => "q quit · r refresh · tab switch pane · ↑↓ jk move · enter detail · y copy id"
+            _ => "q quit · tab switch · ↑↓ jk move · enter detail · v open PR · y copy id"
                 .to_string(),
         };
         hint_owned.as_str()
