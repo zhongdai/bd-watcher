@@ -1,9 +1,9 @@
 use chrono::{DateTime, Local, Utc};
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
 
@@ -888,6 +888,10 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
 /// Renders a centered modal with the full details of `app.selected_sub_bead()`.
 /// Does nothing when there's no selected sub-bead or when the terminal is
 /// smaller than the modal's minimum size.
+///
+/// Layout: a bordered block with metadata rows fixed at the top and the
+/// description in a scrollable region below. A `Scrollbar` widget on the
+/// right edge of the description gives visible scroll feedback.
 pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
     let Some(issue) = app.selected_sub_bead() else {
         return;
@@ -907,15 +911,20 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(title)
+        .title_bottom(Line::from(Span::styled(
+            " ↑↓ scroll · enter/esc close ",
+            Style::default().fg(theme.muted),
+        )))
         .border_style(Style::default().fg(theme.accent))
         .style(Style::default().bg(theme.bg));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
+    // --- Build the fixed metadata lines ---
     let updated = fmt_local(issue.updated_at);
     let created = fmt_local(issue.created_at);
 
-    let mut lines: Vec<Line> = vec![
+    let mut meta_lines: Vec<Line> = vec![
         Line::from(vec![
             Span::styled("status: ", Style::default().fg(theme.muted)),
             Span::styled(
@@ -952,8 +961,6 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
             Span::styled(created, Style::default().fg(theme.fg)),
         ]),
     ];
-
-    // Dependencies (filtered to ordering edges, formatted as short ids).
     if let Some(comp) = app.focused_component() {
         let root_id = comp.root.id.as_str();
         let blocked_by: Vec<String> = comp
@@ -967,50 +974,87 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
             .map(|d| short_id(&d.depends_on_id, root_id))
             .collect();
         if !blocked_by.is_empty() {
-            lines.push(Line::from(vec![
+            meta_lines.push(Line::from(vec![
                 Span::styled("blocked-by: ", Style::default().fg(theme.muted)),
                 Span::styled(blocked_by.join(", "), Style::default().fg(theme.fg)),
             ]));
         }
     }
 
-    // Footer hint for closing — rendered as part of the body so we
-    // don't clobber the border title.
-    lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled(
-        " ↑/↓ scroll · enter/esc close",
-        Style::default().fg(theme.muted),
-    )));
-    lines.push(Line::raw(""));
-    if !issue.description.is_empty() {
-        lines.push(Line::from(Span::styled(
-            "description",
-            Style::default()
-                .fg(theme.muted)
-                .add_modifier(Modifier::UNDERLINED),
-        )));
-        for l in issue.description.lines() {
-            lines.push(Line::raw(l.to_string()));
-        }
-        lines.push(Line::raw(""));
-    }
-    // Notes live on the Issue model in some bd versions; this codebase
-    // doesn't deserialize them, so nothing more to render here.
+    // --- Split inner into (metadata | divider | scrollable body) ---
+    let meta_height = meta_lines.len() as u16;
+    let divider_h = if !issue.description.is_empty() { 1 } else { 0 };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(meta_height),
+            Constraint::Length(divider_h),
+            Constraint::Min(1),
+        ])
+        .split(inner);
 
-    // Clamp scroll against the line count so we don't over-scroll into
-    // empty space. This undercounts when description lines wrap (each
-    // wrapped visual row is one actual line from our Vec), so the
-    // clamp can stop a bit short of the true end; accept that.
-    // ratatui 0.29 gates the accurate Paragraph::line_count behind an
-    // unstable feature, so we keep the naive count for now.
-    let total_lines = lines.len() as u16;
-    let max_scroll = total_lines.saturating_sub(inner.height.max(1));
+    let meta_p = Paragraph::new(meta_lines).style(Style::default().fg(theme.fg).bg(theme.bg));
+    frame.render_widget(meta_p, chunks[0]);
+
+    if issue.description.is_empty() {
+        return;
+    }
+
+    // Horizontal rule between metadata and description.
+    let rule = Paragraph::new(Line::from(Span::styled(
+        "─".repeat(chunks[1].width as usize),
+        Style::default().fg(theme.muted),
+    )))
+    .style(Style::default().bg(theme.bg));
+    frame.render_widget(rule, chunks[1]);
+
+    // --- Scrollable description body ---
+    let body_area = chunks[2];
+    // Reserve one column on the right for the scrollbar; render the
+    // description into the narrower rect to keep text and bar
+    // non-overlapping.
+    let text_area = Rect {
+        x: body_area.x,
+        y: body_area.y,
+        width: body_area.width.saturating_sub(1),
+        height: body_area.height,
+    };
+    let bar_area = Rect {
+        x: body_area.x + body_area.width.saturating_sub(1),
+        y: body_area.y,
+        width: 1,
+        height: body_area.height,
+    };
+
+    let desc_lines: Vec<Line> = issue
+        .description
+        .lines()
+        .map(|l| Line::raw(l.to_string()))
+        .collect();
+
+    // Naive line count (wrapped long lines count as one). Good enough
+    // for clamping; ratatui 0.29 gates accurate post-wrap line_count
+    // behind an unstable feature.
+    let total = desc_lines.len() as u16;
+    let max_scroll = total.saturating_sub(text_area.height.max(1));
     let scroll = app.popup_scroll.min(max_scroll);
-    let p = Paragraph::new(lines)
+
+    let desc_p = Paragraph::new(desc_lines)
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0))
         .style(Style::default().fg(theme.fg).bg(theme.bg));
-    frame.render_widget(p, inner);
+    frame.render_widget(desc_p, text_area);
+
+    // Scrollbar on the right. content_length = number of rows we can
+    // scroll (total - viewport); position = current scroll offset.
+    let mut sb_state = ScrollbarState::new(max_scroll as usize).position(scroll as usize);
+    let sb = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"))
+        .thumb_symbol("█")
+        .style(Style::default().fg(theme.muted));
+    frame.render_stateful_widget(sb, bar_area, &mut sb_state);
 }
 
 /// Returns a Rect centered inside `area`, `width_pct` and `height_pct`
