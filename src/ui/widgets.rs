@@ -895,11 +895,31 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
 /// Layout: a bordered block with metadata rows fixed at the top and the
 /// description in a scrollable region below. A `Scrollbar` widget on the
 /// right edge of the description gives visible scroll feedback.
-pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
-    let Some(issue) = app.selected_sub_bead() else {
-        return;
+pub fn render_bead_detail_popup(app: &mut App, frame: &mut Frame) {
+    // Clone the selected issue + blocked-by list up front so we can
+    // release the immutable borrow of `app` before we mutate it
+    // (we write `popup_scroll` back at the end so clamping is sticky).
+    let issue = match app.selected_sub_bead() {
+        Some(i) => i.clone(),
+        None => return,
     };
-    let theme = &app.theme;
+    let blocked_by: Vec<String> = app
+        .focused_component()
+        .map(|comp| {
+            let root_id = comp.root.id.as_str();
+            comp.dependencies
+                .iter()
+                .filter(|d| {
+                    d.issue_id == issue.id
+                        && matches!(d.dep_type, DepType::Blocks | DepType::ParentChild)
+                })
+                .filter(|d| d.depends_on_id != root_id)
+                .map(|d| short_id(&d.depends_on_id, root_id))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let theme = app.theme;
     let area = frame.area();
 
     let popup = centered_rect(area, 70, 80);
@@ -933,7 +953,7 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
             Span::styled(
                 format!("{} {}", issue.status.icon(), issue.status.label()),
                 Style::default()
-                    .fg(status_color(theme, issue.status))
+                    .fg(status_color(&theme, issue.status))
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("   "),
@@ -941,18 +961,21 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
             Span::styled(issue.priority.to_string(), Style::default().fg(theme.fg)),
             Span::raw("   "),
             Span::styled("type: ", Style::default().fg(theme.muted)),
-            Span::styled(&issue.issue_type, Style::default().fg(theme.fg)),
+            Span::styled(issue.issue_type.clone(), Style::default().fg(theme.fg)),
         ]),
         Line::from(vec![
             Span::styled("owner: ", Style::default().fg(theme.muted)),
             Span::styled(
-                issue.owner.as_deref().unwrap_or("—"),
+                issue.owner.clone().unwrap_or_else(|| "—".to_string()),
                 Style::default().fg(theme.fg),
             ),
             Span::raw("   "),
             Span::styled("external: ", Style::default().fg(theme.muted)),
             Span::styled(
-                issue.external_ref.as_deref().unwrap_or("—"),
+                issue
+                    .external_ref
+                    .clone()
+                    .unwrap_or_else(|| "—".to_string()),
                 Style::default().fg(theme.accent),
             ),
         ]),
@@ -964,24 +987,11 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
             Span::styled(created, Style::default().fg(theme.fg)),
         ]),
     ];
-    if let Some(comp) = app.focused_component() {
-        let root_id = comp.root.id.as_str();
-        let blocked_by: Vec<String> = comp
-            .dependencies
-            .iter()
-            .filter(|d| {
-                d.issue_id == issue.id
-                    && matches!(d.dep_type, DepType::Blocks | DepType::ParentChild)
-            })
-            .filter(|d| d.depends_on_id != root_id)
-            .map(|d| short_id(&d.depends_on_id, root_id))
-            .collect();
-        if !blocked_by.is_empty() {
-            meta_lines.push(Line::from(vec![
-                Span::styled("blocked-by: ", Style::default().fg(theme.muted)),
-                Span::styled(blocked_by.join(", "), Style::default().fg(theme.fg)),
-            ]));
-        }
+    if !blocked_by.is_empty() {
+        meta_lines.push(Line::from(vec![
+            Span::styled("blocked-by: ", Style::default().fg(theme.muted)),
+            Span::styled(blocked_by.join(", "), Style::default().fg(theme.fg)),
+        ]));
     }
 
     // --- Split inner into (metadata | divider | scrollable body) ---
@@ -1035,12 +1045,30 @@ pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
         .map(|l| Line::raw(l.to_string()))
         .collect();
 
-    // Naive line count (wrapped long lines count as one). Good enough
-    // for clamping; ratatui 0.29 gates accurate post-wrap line_count
-    // behind an unstable feature.
-    let total = desc_lines.len() as u16;
-    let max_scroll = total.saturating_sub(text_area.height.max(1));
-    let scroll = app.popup_scroll.min(max_scroll);
+    // Real post-wrap row count: each logical line occupies
+    // `ceil(visual_width / text_width)` rows after Paragraph wraps it.
+    // Empty lines still take 1 row.
+    let text_width = text_area.width.max(1);
+    let total_rows: u32 = desc_lines
+        .iter()
+        .map(|ln| {
+            let w = ln.width() as u32;
+            if w == 0 {
+                1
+            } else {
+                w.div_ceil(text_width as u32)
+            }
+        })
+        .sum();
+    let max_scroll = (total_rows as u16).saturating_sub(text_area.height.max(1));
+
+    // Clamp on write — not just on display — so pressing k after
+    // hitting the bottom immediately moves the view up rather than
+    // having to "undo" an invisible overshoot.
+    if app.popup_scroll > max_scroll {
+        app.popup_scroll = max_scroll;
+    }
+    let scroll = app.popup_scroll;
 
     let desc_p = Paragraph::new(desc_lines)
         .wrap(Wrap { trim: false })

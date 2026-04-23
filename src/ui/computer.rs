@@ -6,7 +6,7 @@ use ratatui::{
 use crate::app::{App, View};
 use crate::ui::widgets;
 
-pub fn render(app: &App, frame: &mut Frame) {
+pub fn render(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     if area.width < 80 || area.height < 24 {
         widgets::too_small_placeholder(frame, &app.theme, area);
@@ -20,7 +20,7 @@ pub fn render(app: &App, frame: &mut Frame) {
     }
 }
 
-fn render_single_epic(app: &App, frame: &mut Frame) {
+fn render_single_epic(app: &mut App, frame: &mut Frame) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)

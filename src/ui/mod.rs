@@ -5,6 +5,6 @@ use ratatui::Frame;
 
 use crate::app::App;
 
-pub fn render(app: &App, frame: &mut Frame) {
+pub fn render(app: &mut App, frame: &mut Frame) {
     computer::render(app, frame);
 }
