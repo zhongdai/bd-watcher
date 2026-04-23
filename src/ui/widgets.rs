@@ -42,8 +42,11 @@ pub fn render_header(app: &App, frame: &mut Frame, area: Rect) {
     let pct = (counts.done_fraction() * 100.0).round() as u32;
 
     let title = format!(
-        " bd-watcher · repo: {} · every {}s · {} ",
-        repo, interval, refreshed
+        " bd-watcher v{} · repo: {} · every {}s · {} ",
+        env!("CARGO_PKG_VERSION"),
+        repo,
+        interval,
+        refreshed,
     );
 
     let mut lines: Vec<Line> = Vec::new();
