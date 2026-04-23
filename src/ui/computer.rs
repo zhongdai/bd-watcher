@@ -40,10 +40,18 @@ fn render_single_epic(app: &App, frame: &mut Frame) {
     let hint: &str = if let Some(t) = app.active_toast() {
         t
     } else {
-        hint_owned = "q quit · r refresh".to_string();
+        hint_owned = match app.view {
+            View::BeadDetail => "enter/esc close".to_string(),
+            _ => "q quit · r refresh · ↑↓ jk select · enter detail · y copy id".to_string(),
+        };
         hint_owned.as_str()
     };
     widgets::render_footer(app, frame, chunks[3], hint);
+
+    // Popup overlay on top of everything else when toggled on.
+    if app.view == View::BeadDetail {
+        widgets::render_bead_detail_popup(app, frame);
+    }
 }
 
 fn render_all_epics(app: &App, frame: &mut Frame) {

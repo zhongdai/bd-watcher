@@ -64,17 +64,29 @@ bd-watcher --repo ~/code/my-repo # run `bd` from another directory
 
 ### Keys
 
+All-epics view:
+
 | Key | Action |
 |---|---|
 | `q`            | quit |
 | `r`            | force refresh |
-| `↑` / `k`      | select previous epic |
-| `↓` / `j`      | select next epic |
-| `gg`           | jump to first epic |
-| `G`            | jump to last epic |
-| `y`            | copy selected epic id to clipboard |
-| `/`            | filter epics by id/title |
-| `Esc`          | close filter |
+| `↑` / `k`      | previous epic |
+| `↓` / `j`      | next epic |
+| `gg` / `G`     | first / last epic |
+| `y`            | copy epic id |
+| `/`            | filter by id/title (Esc to close) |
+
+Focused-epic view (`bd-watcher <epic-id>`):
+
+| Key | Action |
+|---|---|
+| `↑` / `k`      | previous sub-bead |
+| `↓` / `j`      | next sub-bead |
+| `gg` / `G`     | first / last sub-bead |
+| `Enter`        | open detail popup for selected sub-bead |
+| `Esc` / `Enter`| close popup |
+| `y`            | copy selected sub-bead id |
+| `q`            | quit |
 
 ### Themes
 

@@ -662,6 +662,15 @@ pub fn compute_layers(component: &Component) -> Vec<Vec<usize>> {
     layers
 }
 
+/// Returns indices into `component.issues` in the same top-to-bottom
+/// order the focused-epic view renders them: layer 0 first, then
+/// layer 1, etc.; within each layer sorted by id. This is the
+/// authoritative order for sub-bead selection so arrow-key navigation
+/// matches what's on screen.
+pub fn visual_sub_order(component: &Component) -> Vec<usize> {
+    compute_layers(component).into_iter().flatten().collect()
+}
+
 /// Shortens a child id by stripping the root epic prefix. E.g.
 /// ("sel3-42wn.10", "sel3-42wn") -> ".10". Full id returned unchanged if the
 /// prefix doesn't match.
@@ -778,6 +787,11 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
             .push(short_id(&d.depends_on_id, root_id));
     }
 
+    // Index of the sub-bead currently selected (for row highlighting).
+    // None when the user hasn't focused this epic or when there are no
+    // children yet.
+    let selected_issue_idx = visual_sub_order(comp).get(app.selected_sub).copied();
+
     for (layer_idx, issues) in layers.iter().enumerate() {
         if issues.is_empty() {
             continue;
@@ -837,12 +851,141 @@ pub fn render_single_epic_dag(app: &App, frame: &mut Frame, area: Rect) {
                     Style::default().fg(theme.muted),
                 ));
             }
-            lines.push(Line::from(spans));
+            let mut line = Line::from(spans);
+            if Some(i) == selected_issue_idx {
+                line = line.style(
+                    Style::default()
+                        .bg(theme.selection_bg)
+                        .fg(theme.selection_fg),
+                );
+            }
+            lines.push(line);
         }
     }
 
     let p = Paragraph::new(lines).style(Style::default().fg(theme.fg).bg(theme.bg));
     frame.render_widget(p, inner);
+}
+
+/// Renders a centered modal with the full details of `app.selected_sub_bead()`.
+/// Does nothing when there's no selected sub-bead or when the terminal is
+/// smaller than the modal's minimum size.
+pub fn render_bead_detail_popup(app: &App, frame: &mut Frame) {
+    let Some(issue) = app.selected_sub_bead() else {
+        return;
+    };
+    let theme = &app.theme;
+    let area = frame.area();
+
+    let popup = centered_rect(area, 70, 80);
+    if popup.width < 40 || popup.height < 10 {
+        return;
+    }
+
+    // Wipe whatever was underneath.
+    frame.render_widget(ratatui::widgets::Clear, popup);
+
+    let title = format!(" {} · {} ", issue.id, truncate(&issue.title, 60));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(theme.accent))
+        .style(Style::default().bg(theme.bg));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let updated = fmt_local(issue.updated_at);
+    let created = fmt_local(issue.created_at);
+
+    let mut lines: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled("status: ", Style::default().fg(theme.muted)),
+            Span::styled(
+                format!("{} {}", issue.status.icon(), issue.status.label()),
+                Style::default()
+                    .fg(status_color(theme, issue.status))
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("   "),
+            Span::styled("priority: ", Style::default().fg(theme.muted)),
+            Span::styled(issue.priority.to_string(), Style::default().fg(theme.fg)),
+            Span::raw("   "),
+            Span::styled("type: ", Style::default().fg(theme.muted)),
+            Span::styled(&issue.issue_type, Style::default().fg(theme.fg)),
+        ]),
+        Line::from(vec![
+            Span::styled("owner: ", Style::default().fg(theme.muted)),
+            Span::styled(
+                issue.owner.as_deref().unwrap_or("—"),
+                Style::default().fg(theme.fg),
+            ),
+            Span::raw("   "),
+            Span::styled("external: ", Style::default().fg(theme.muted)),
+            Span::styled(
+                issue.external_ref.as_deref().unwrap_or("—"),
+                Style::default().fg(theme.accent),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("updated: ", Style::default().fg(theme.muted)),
+            Span::styled(updated, Style::default().fg(theme.fg)),
+            Span::raw("   "),
+            Span::styled("created: ", Style::default().fg(theme.muted)),
+            Span::styled(created, Style::default().fg(theme.fg)),
+        ]),
+    ];
+
+    // Dependencies (filtered to ordering edges, formatted as short ids).
+    if let Some(comp) = app.focused_component() {
+        let root_id = comp.root.id.as_str();
+        let blocked_by: Vec<String> = comp
+            .dependencies
+            .iter()
+            .filter(|d| {
+                d.issue_id == issue.id
+                    && matches!(d.dep_type, DepType::Blocks | DepType::ParentChild)
+            })
+            .filter(|d| d.depends_on_id != root_id)
+            .map(|d| short_id(&d.depends_on_id, root_id))
+            .collect();
+        if !blocked_by.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("blocked-by: ", Style::default().fg(theme.muted)),
+                Span::styled(blocked_by.join(", "), Style::default().fg(theme.fg)),
+            ]));
+        }
+    }
+
+    lines.push(Line::raw(""));
+    if !issue.description.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "description",
+            Style::default()
+                .fg(theme.muted)
+                .add_modifier(Modifier::UNDERLINED),
+        )));
+        for l in issue.description.lines() {
+            lines.push(Line::raw(l.to_string()));
+        }
+        lines.push(Line::raw(""));
+    }
+    // Notes live on the Issue model in some bd versions; this codebase
+    // doesn't deserialize them, so nothing more to render here.
+
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .style(Style::default().fg(theme.fg).bg(theme.bg));
+    frame.render_widget(p, inner);
+}
+
+/// Returns a Rect centered inside `area`, `width_pct` and `height_pct`
+/// as percentages [0..=100].
+fn centered_rect(area: Rect, width_pct: u16, height_pct: u16) -> Rect {
+    let w = area.width.saturating_mul(width_pct) / 100;
+    let h = area.height.saturating_mul(height_pct) / 100;
+    let x = area.x + area.width.saturating_sub(w) / 2;
+    let y = area.y + area.height.saturating_sub(h) / 2;
+    Rect::new(x, y, w, h)
 }
 
 #[cfg(test)]
